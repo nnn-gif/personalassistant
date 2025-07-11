@@ -1,7 +1,6 @@
 use crate::error::Result;
 use crate::models::{AppUsage, AppCategory, TerminalInfo};
-use objc2_foundation::NSString;
-use objc2_app_kit::NSWorkspace;
+use std::process::Command;
 
 pub struct AppWatcher;
 
@@ -11,19 +10,77 @@ impl AppWatcher {
     }
     
     pub fn get_current_app(&self) -> Result<AppUsage> {
-        // Simplified version - in production would use proper macOS APIs
-        let app_name = "Finder".to_string();
-        let bundle_id = "com.apple.finder".to_string();
-        let window_title = "Finder Window".to_string();
-        let category = self.categorize_app(&app_name, &bundle_id);
-        let is_productive = self.is_productive(&category);
+        // Get frontmost application using AppleScript
+        let script = r#"
+            tell application "System Events"
+                set frontApp to first application process whose frontmost is true
+                set appName to name of frontApp
+                set appID to bundle identifier of frontApp
+                try
+                    set windowTitle to name of front window of frontApp
+                on error
+                    set windowTitle to ""
+                end try
+                return appName & "|" & appID & "|" & windowTitle
+            end tell
+        "#;
         
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| crate::error::AppError::Platform(format!("Failed to get current app: {}", e)))?;
+        
+        if output.status.success() {
+            let result = String::from_utf8_lossy(&output.stdout);
+            let parts: Vec<&str> = result.trim().split('|').collect();
+            
+            if parts.len() >= 3 {
+                let app_name = parts[0].to_string();
+                let bundle_id = parts[1].to_string();
+                let window_title = parts[2].to_string();
+                
+                let category = self.categorize_app(&app_name, &bundle_id);
+                let is_productive = self.is_productive(&category);
+                
+                let browser_url = if self.is_browser(&app_name) {
+                    self.detect_browser_url(&window_title)
+                } else {
+                    None
+                };
+                
+                let editor_file = if self.is_code_editor(&app_name) {
+                    self.detect_editor_file(&window_title)
+                } else {
+                    None
+                };
+                
+                let terminal_info = if self.is_terminal(&app_name) {
+                    self.detect_terminal_details(&window_title)
+                } else {
+                    None
+                };
+                
+                return Ok(AppUsage {
+                    app_name,
+                    bundle_id,
+                    window_title,
+                    category,
+                    is_productive,
+                    browser_url,
+                    editor_file,
+                    terminal_info,
+                });
+            }
+        }
+        
+        // Fallback
         Ok(AppUsage {
-            app_name,
-            bundle_id,
-            window_title,
-            category,
-            is_productive,
+            app_name: "Unknown".to_string(),
+            bundle_id: "unknown".to_string(),
+            window_title: "Unknown Window".to_string(),
+            category: AppCategory::Other,
+            is_productive: false,
             browser_url: None,
             editor_file: None,
             terminal_info: None,

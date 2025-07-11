@@ -15,10 +15,13 @@ pub async fn get_current_activity(
 
 #[tauri::command]
 pub async fn get_activity_history(
-    limit: usize,
+    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
+    limit: Option<usize>,
 ) -> Result<Vec<Activity>> {
-    // Return empty for now until database is initialized
-    Ok(vec![])
+    let tracker = tracker.lock().await;
+    let limit = limit.unwrap_or(50);
+    
+    Ok(tracker.get_recent_activities(limit))
 }
 
 #[tauri::command]

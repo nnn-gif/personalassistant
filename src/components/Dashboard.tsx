@@ -41,7 +41,7 @@ function StatCard({ title, value, icon: Icon, color }: StatCardProps) {
 export default function Dashboard() {
   const [productivityScore, setProductivityScore] = useState<ProductivityScore | null>(null)
   const [activeGoals, setActiveGoals] = useState(0)
-  const [todayHours, setTodayHours] = useState(0)
+  const [todayHours] = useState(0)
   const [insights, setInsights] = useState<string[]>([])
 
   useEffect(() => {

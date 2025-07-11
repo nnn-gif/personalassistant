@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Loader2, Save, Tag } from 'lucide-react'
+import { Search, Loader2, Tag } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import ResearchResults from './research/ResearchResults'

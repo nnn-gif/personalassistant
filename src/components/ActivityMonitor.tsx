@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
 import { Play, Pause, Monitor, Clock, MousePointer } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import CurrentActivity from './activity/CurrentActivity'

@@ -1,16 +1,37 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { useEffect, useState } from 'react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { invoke } from '@tauri-apps/api/core'
 
-// Mock data - in real app would fetch from backend
-const data = [
-  { app: 'VS Code', minutes: 120, productive: true },
-  { app: 'Chrome', minutes: 85, productive: true },
-  { app: 'Slack', minutes: 45, productive: true },
-  { app: 'Terminal', minutes: 38, productive: true },
-  { app: 'Spotify', minutes: 25, productive: false },
-  { app: 'Twitter', minutes: 15, productive: false },
-]
+interface AppUsageData {
+  app_name: string
+  total_minutes: number
+  is_productive: boolean
+}
 
 export default function ActivityTimeline() {
+  const [data, setData] = useState<any[]>([])
+  
+  useEffect(() => {
+    loadAppUsageStats()
+    const interval = setInterval(loadAppUsageStats, 60000) // Update every minute
+    return () => clearInterval(interval)
+  }, [])
+  
+  const loadAppUsageStats = async () => {
+    try {
+      const stats = await invoke<AppUsageData[]>('get_app_usage_stats', { hours: 8 })
+      const chartData = stats
+        .slice(0, 6) // Top 6 apps
+        .map(item => ({
+          app: item.app_name,
+          minutes: item.total_minutes,
+          productive: item.is_productive
+        }))
+      setData(chartData)
+    } catch (error) {
+      console.error('Failed to load app usage stats:', error)
+    }
+  }
   return (
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
@@ -37,9 +58,12 @@ export default function ActivityTimeline() {
           />
           <Bar 
             dataKey="minutes" 
-            fill={(entry: any) => entry.productive ? '#3b82f6' : '#6b7280'}
             radius={[0, 4, 4, 0]}
-          />
+          >
+            {data.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={entry.productive ? '#3b82f6' : '#6b7280'} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>

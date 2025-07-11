@@ -23,8 +23,10 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // Initialize services synchronously
-            let activity_tracker = activity_tracking::ActivityTracker::new();
-            app.manage(Arc::new(tokio::sync::Mutex::new(activity_tracker)));
+            let activity_tracker = Arc::new(tokio::sync::Mutex::new(
+                activity_tracking::ActivityTracker::new()
+            ));
+            app.manage(activity_tracker.clone());
             
             let browser_ai = browser_ai::BrowserAIAgent::new();
             app.manage(Arc::new(tokio::sync::Mutex::new(browser_ai)));
@@ -34,6 +36,29 @@ fn main() {
             
             let llm_client = llm::LlmClient::new();
             app.manage(Arc::new(llm_client));
+            
+            // Start activity tracking background task
+            let tracker_clone = activity_tracker.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+                loop {
+                    interval.tick().await;
+                    let mut tracker = tracker_clone.lock().await;
+                    if tracker.is_tracking() {
+                        match tracker.collect_activity().await {
+                            Ok(activity) => {
+                                println!("Activity collected: {} - {}", 
+                                    activity.app_usage.app_name, 
+                                    activity.app_usage.window_title
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to collect activity: {}", e);
+                            }
+                        }
+                    }
+                }
+            });
             
             Ok(())
         })
@@ -62,6 +87,11 @@ fn main() {
             services::llm::get_productivity_insights,
             services::llm::get_productivity_score,
             services::llm::get_recommendations,
+            
+            // Productivity commands
+            services::productivity::get_productivity_trend,
+            services::productivity::get_app_usage_stats,
+            services::productivity::get_current_productivity_score,
         ])
         .run(generate_context!())
         .expect("error while running tauri application");

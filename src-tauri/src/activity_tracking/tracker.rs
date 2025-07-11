@@ -1,15 +1,15 @@
 use crate::error::Result;
-use crate::models::{Activity, InputMetrics, SystemState};
-use super::{AppWatcher, ProjectDetector};
+use crate::models::Activity;
+use super::{AppWatcher, ProjectDetector, SystemMonitor, InputMonitor, ActivityHistory};
 use chrono::Utc;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio::time::{interval, Duration};
 use uuid::Uuid;
 
 pub struct ActivityTracker {
     app_watcher: AppWatcher,
     project_detector: ProjectDetector,
+    system_monitor: SystemMonitor,
+    input_monitor: InputMonitor,
+    history: ActivityHistory,
     is_tracking: bool,
     current_activity: Option<Activity>,
 }
@@ -19,6 +19,9 @@ impl ActivityTracker {
         Self {
             app_watcher: AppWatcher::new(),
             project_detector: ProjectDetector::new(),
+            system_monitor: SystemMonitor::new(),
+            input_monitor: InputMonitor::new(),
+            history: ActivityHistory::new(),
             is_tracking: false,
             current_activity: None,
         }
@@ -43,23 +46,11 @@ impl ActivityTracker {
         let project_context = self.project_detector
             .detect_project(&app_usage.app_name, &app_usage.window_title)?;
         
-        // Placeholder for input metrics - would need platform-specific implementation
-        let input_metrics = InputMetrics {
-            keystrokes: 0,
-            mouse_clicks: 0,
-            mouse_distance_pixels: 0.0,
-            active_typing_seconds: 0,
-        };
+        // Get real input metrics
+        let input_metrics = self.input_monitor.get_metrics_and_reset()?;
         
-        // Placeholder for system state - would need platform-specific implementation
-        let system_state = SystemState {
-            idle_time_seconds: 0,
-            is_screen_locked: false,
-            battery_percentage: Some(100.0),
-            is_on_battery: false,
-            cpu_usage_percent: 0.0,
-            memory_usage_mb: 0,
-        };
+        // Get real system state
+        let system_state = self.system_monitor.get_system_state()?;
         
         let activity = Activity {
             id: Uuid::new_v4(),
@@ -70,6 +61,9 @@ impl ActivityTracker {
             system_state,
             project_context,
         };
+        
+        // Store in history
+        self.history.add_activity(activity.clone());
         
         self.current_activity = Some(activity.clone());
         Ok(activity)
@@ -84,5 +78,19 @@ impl ActivityTracker {
             .as_ref()
             .and_then(|a| a.project_context.as_ref())
             .map(|p| p.project_name.clone())
+    }
+    
+    pub fn get_history(&self) -> &ActivityHistory {
+        &self.history
+    }
+    
+    pub fn get_recent_activities(&self, limit: usize) -> Vec<Activity> {
+        self.history.get_recent(limit).into_iter().cloned().collect()
+    }
+    
+    pub fn get_productivity_stats(&self, hours: i64) -> (u32, u32) {
+        let productive = self.history.get_productive_time(hours);
+        let total = self.history.get_total_time(hours);
+        (productive, total)
     }
 }

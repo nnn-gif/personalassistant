@@ -28,7 +28,7 @@ function App() {
 
   return (
     <div className="flex h-screen bg-dark-bg">
-      <Sidebar currentView={currentView} onViewChange={setCurrentView} />
+      <Sidebar currentView={currentView} onViewChange={(view) => setCurrentView(view as View)} />
       
       <main className="flex-1 overflow-y-auto">
         <motion.div

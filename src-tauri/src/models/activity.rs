@@ -25,7 +25,7 @@ pub struct AppUsage {
     pub terminal_info: Option<TerminalInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AppCategory {
     Development,
     Communication,
