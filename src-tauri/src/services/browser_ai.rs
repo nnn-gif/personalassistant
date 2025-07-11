@@ -1,6 +1,8 @@
 use crate::browser_ai::BrowserAIAgent;
+use crate::database::Database;
 use crate::error::Result;
 use crate::models::{BrowserAIProgress, ResearchTask, SavedResearchTask};
+use crate::storage::LocalStorage;
 use chrono::Utc;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -54,31 +56,71 @@ pub async fn get_research_status(
 #[tauri::command]
 pub async fn save_research(
     agent: State<'_, Arc<Mutex<BrowserAIAgent>>>,
+    storage: State<'_, Arc<Mutex<LocalStorage>>>,
     task_id: Uuid,
     tags: Vec<String>,
     notes: Option<String>,
 ) -> Result<SavedResearchTask> {
+    println!("save_research called with task_id: {}", task_id);
+    
     let agent = agent.lock().await;
     let task = agent.get_task(&task_id)
-        .ok_or_else(|| crate::error::AppError::NotFound("Research task not found".into()))?
+        .ok_or_else(|| {
+            eprintln!("Research task not found: {}", task_id);
+            crate::error::AppError::NotFound("Research task not found".into())
+        })?
         .clone();
+    
+    println!("Found research task: {}", task.query);
     
     let saved_task = SavedResearchTask {
         id: Uuid::new_v4(),
         task,
-        tags,
+        tags: tags.clone(),
         notes,
         saved_at: Utc::now(),
     };
     
-    // Return the saved task without database for now
-    Ok(saved_task)
+    println!("Saving research task with tags: {:?}", tags);
+    
+    // Save to local storage
+    let storage = storage.lock().await;
+    match storage.save_research(&saved_task) {
+        Ok(_) => {
+            println!("Research saved successfully with id: {}", saved_task.id);
+            Ok(saved_task)
+        }
+        Err(e) => {
+            eprintln!("Failed to save research: {}", e);
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]
 pub async fn get_saved_research(
+    storage: State<'_, Arc<Mutex<LocalStorage>>>,
     search_query: Option<String>,
 ) -> Result<Vec<SavedResearchTask>> {
-    // Return empty for now until database is initialized
-    Ok(vec![])
+    println!("get_saved_research called with query: {:?}", search_query);
+    
+    let storage = storage.lock().await;
+    
+    let result = storage.get_saved_research(search_query.as_deref());
+    
+    match &result {
+        Ok(tasks) => println!("Found {} saved research tasks", tasks.len()),
+        Err(e) => eprintln!("Error getting saved research: {}", e),
+    }
+    
+    result
+}
+
+#[tauri::command]
+pub async fn delete_saved_research(
+    storage: State<'_, Arc<Mutex<LocalStorage>>>,
+    id: Uuid,
+) -> Result<()> {
+    let storage = storage.lock().await;
+    storage.delete_research(&id)
 }

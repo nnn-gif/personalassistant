@@ -5,16 +5,19 @@
 
 mod activity_tracking;
 mod browser_ai;
-// mod database; // Temporarily disabled
+mod database;
 mod error;
 mod goals;
 mod llm;
 mod models;
 mod services;
+mod storage;
 
 use error::AppError;
 use std::sync::Arc;
 use tauri::{generate_context, generate_handler, Manager};
+use database::Database;
+use storage::LocalStorage;
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -36,6 +39,46 @@ fn main() {
             
             let llm_client = llm::LlmClient::new();
             app.manage(Arc::new(llm_client));
+            
+            // Initialize storage and database
+            match LocalStorage::new() {
+                Ok(storage) => {
+                    app.manage(Arc::new(tokio::sync::Mutex::new(storage)));
+                    println!("Local storage initialized successfully");
+                }
+                Err(e) => {
+                    eprintln!("Failed to initialize local storage: {}", e);
+                }
+            }
+            
+            // Initialize database synchronously in a blocking task
+            let (tx, rx) = std::sync::mpsc::channel();
+            tauri::async_runtime::spawn(async move {
+                match Database::new("personalassistant").await {
+                    Ok(db) => {
+                        tx.send(Ok(db)).unwrap();
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to initialize database: {}", e);
+                        tx.send(Err(e)).unwrap();
+                    }
+                }
+            });
+            
+            // Wait for database initialization
+            match rx.recv() {
+                Ok(Ok(db)) => {
+                    app.manage(Arc::new(tokio::sync::Mutex::new(db)));
+                    println!("Database initialized successfully");
+                }
+                Ok(Err(e)) => {
+                    eprintln!("Database initialization failed: {}", e);
+                    // Continue without database - commands will handle the missing state
+                }
+                Err(e) => {
+                    eprintln!("Failed to receive database initialization result: {}", e);
+                }
+            }
             
             // Start activity tracking background task
             let tracker_clone = activity_tracker.clone();
@@ -75,6 +118,7 @@ fn main() {
             services::browser_ai::get_research_status,
             services::browser_ai::save_research,
             services::browser_ai::get_saved_research,
+            services::browser_ai::delete_saved_research,
             
             // Goal commands
             services::goals::create_goal,

@@ -6,3 +6,4 @@ pub mod goals;
 pub mod llm;
 pub mod models;
 pub mod services;
+pub mod storage;

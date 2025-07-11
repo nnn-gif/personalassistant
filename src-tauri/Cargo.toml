@@ -36,6 +36,7 @@ objc-foundation = "0.1"
 cocoa = "0.26"
 core-graphics = "0.24"
 core-foundation = "0.10"
+dirs = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"

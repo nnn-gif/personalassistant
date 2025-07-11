@@ -1,7 +1,7 @@
 use crate::error::{AppError, Result};
 use crate::models::{SavedResearchTask, ResearchTask, Goal, GoalSession, Activity};
-use surrealdb::Surreal;
-use surrealdb::engine::any::{connect, Any};
+use surrealdb::{Surreal, engine::any::{connect, Any}};
+use surrealdb::opt::auth::Root;
 use uuid::Uuid;
 
 pub struct Database {
@@ -10,15 +10,59 @@ pub struct Database {
 
 impl Database {
     pub async fn new(namespace: &str) -> Result<Self> {
-        let db = connect("mem://").await?;
+        // Use in-memory SurrealDB for now
+        // TODO: Enable file persistence when RocksDB is available
+        println!("Connecting to in-memory SurrealDB");
         
-        db.use_ns(namespace).use_db("assistant").await?;
+        let db = connect("mem://").await
+            .map_err(|e| AppError::Database(format!("Failed to connect to SurrealDB: {}", e)))?;
         
-        // Create tables
-        db.query("DEFINE TABLE research_tasks").await?;
-        db.query("DEFINE TABLE goals").await?;
-        db.query("DEFINE TABLE goal_sessions").await?;
-        db.query("DEFINE TABLE activities").await?;
+        // Sign in as root
+        db.signin(Root {
+            username: "root",
+            password: "root",
+        })
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to sign in: {}", e)))?;
+        
+        // Select namespace and database
+        db.use_ns(namespace).use_db("assistant").await
+            .map_err(|e| AppError::Database(format!("Failed to select namespace/database: {}", e)))?;
+        
+        // Create tables with proper schemas
+        db.query("DEFINE TABLE research_tasks SCHEMAFULL")
+            .query("DEFINE FIELD id ON research_tasks TYPE uuid")
+            .query("DEFINE FIELD task ON research_tasks TYPE object")
+            .query("DEFINE FIELD tags ON research_tasks TYPE array")
+            .query("DEFINE FIELD notes ON research_tasks TYPE option<string>")
+            .query("DEFINE FIELD saved_at ON research_tasks TYPE datetime")
+            .await
+            .map_err(|e| AppError::Database(format!("Failed to create research_tasks table: {}", e)))?;
+        
+        db.query("DEFINE TABLE goals SCHEMAFULL")
+            .query("DEFINE FIELD id ON goals TYPE uuid")
+            .query("DEFINE FIELD title ON goals TYPE string")
+            .query("DEFINE FIELD description ON goals TYPE option<string>")
+            .query("DEFINE FIELD category ON goals TYPE string")
+            .query("DEFINE FIELD target_hours ON goals TYPE number")
+            .query("DEFINE FIELD is_active ON goals TYPE bool")
+            .query("DEFINE FIELD created_at ON goals TYPE datetime")
+            .query("DEFINE FIELD updated_at ON goals TYPE datetime")
+            .await
+            .map_err(|e| AppError::Database(format!("Failed to create goals table: {}", e)))?;
+        
+        db.query("DEFINE TABLE activities SCHEMAFULL")
+            .query("DEFINE FIELD id ON activities TYPE uuid")
+            .query("DEFINE FIELD timestamp ON activities TYPE datetime")
+            .query("DEFINE FIELD duration_seconds ON activities TYPE number")
+            .query("DEFINE FIELD app_usage ON activities TYPE object")
+            .query("DEFINE FIELD input_metrics ON activities TYPE object")
+            .query("DEFINE FIELD system_state ON activities TYPE object")
+            .query("DEFINE FIELD project_context ON activities TYPE option<object>")
+            .await
+            .map_err(|e| AppError::Database(format!("Failed to create activities table: {}", e)))?;
+        
+        println!("Database initialized successfully");
         
         Ok(Self { db })
     }
@@ -50,14 +94,22 @@ impl Database {
     }
     
     pub async fn search_research_tasks(&self, query: &str) -> Result<Vec<SavedResearchTask>> {
-        let query_string = query.to_string();
+        let query_lower = query.to_lowercase();
         let result: Vec<SavedResearchTask> = self.db
-            .query("SELECT * FROM research_tasks WHERE task.query CONTAINS $query OR notes CONTAINS $query OR $query IN tags")
-            .bind(("query", query_string))
+            .query("SELECT * FROM research_tasks WHERE string::lowercase(task.query) CONTAINS $query OR string::lowercase(notes) CONTAINS $query OR $query IN array::map(tags, |$tag| string::lowercase($tag))")
+            .bind(("query", query_lower))
             .await?
             .take(0)?;
         
         Ok(result)
+    }
+    
+    pub async fn delete_research_task(&self, id: Uuid) -> Result<()> {
+        let _: Option<SavedResearchTask> = self.db
+            .delete(("research_tasks", id.to_string()))
+            .await?;
+        
+        Ok(())
     }
     
     // Goal methods

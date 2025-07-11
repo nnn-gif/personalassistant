@@ -38,6 +38,9 @@ pub enum AppError {
     #[error("Not found: {0}")]
     NotFound(String),
     
+    #[error("Storage error: {0}")]
+    Storage(String),
+    
     #[error("Invalid input: {0}")]
     InvalidInput(String),
     

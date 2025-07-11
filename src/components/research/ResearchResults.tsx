@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
-import { ExternalLink, Save, ChevronDown, ChevronUp } from 'lucide-react'
+import { ExternalLink, Save, ChevronDown, ChevronUp, Check } from 'lucide-react'
 
 interface ResearchResultsProps {
   taskId: string
@@ -20,6 +20,7 @@ export default function ResearchResults({ taskId }: ResearchResultsProps) {
   const [task, setTask] = useState<ResearchTask | null>(null)
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     loadTask()
@@ -35,18 +36,23 @@ export default function ResearchResults({ taskId }: ResearchResultsProps) {
   }
 
   const saveResearch = async () => {
-    if (!task) return
+    if (!task || saved) return
     
+    console.log('Saving research for task:', task.id)
     setSaving(true)
     try {
-      await invoke('save_research', {
+      const result = await invoke('save_research', {
         taskId: task.id,
         tags: task.query.split(' ').slice(0, 3),
         notes: ''
       })
-      // Show success notification
+      console.log('Research saved successfully:', result)
+      setSaved(true)
+      // Reset saved state after 3 seconds
+      setTimeout(() => setSaved(false), 3000)
     } catch (error) {
       console.error('Failed to save research:', error)
+      alert('Failed to save research: ' + error)
     } finally {
       setSaving(false)
     }
@@ -74,11 +80,17 @@ export default function ResearchResults({ taskId }: ResearchResultsProps) {
           </div>
           <button
             onClick={saveResearch}
-            disabled={saving}
-            className="btn-secondary flex items-center space-x-2"
+            disabled={saving || saved}
+            className={`btn-secondary flex items-center space-x-2 transition-colors ${
+              saved ? 'bg-success/20 text-success' : ''
+            }`}
           >
-            <Save className="w-4 h-4" />
-            <span>{saving ? 'Saving...' : 'Save Research'}</span>
+            {saved ? (
+              <Check className="w-4 h-4" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            <span>{saving ? 'Saving...' : saved ? 'Saved!' : 'Save Research'}</span>
           </button>
         </div>
 
