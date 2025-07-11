@@ -1,0 +1,49 @@
+import { useState } from 'react'
+import { motion } from 'framer-motion'
+import Sidebar from './components/layout/Sidebar'
+import Dashboard from './components/Dashboard'
+import ResearchAssistant from './components/ResearchAssistant'
+import GoalsManager from './components/GoalsManager'
+import ActivityMonitor from './components/ActivityMonitor'
+
+type View = 'dashboard' | 'research' | 'goals' | 'activity'
+
+function App() {
+  const [currentView, setCurrentView] = useState<View>('dashboard')
+
+  const renderView = () => {
+    switch (currentView) {
+      case 'dashboard':
+        return <Dashboard />
+      case 'research':
+        return <ResearchAssistant />
+      case 'goals':
+        return <GoalsManager />
+      case 'activity':
+        return <ActivityMonitor />
+      default:
+        return <Dashboard />
+    }
+  }
+
+  return (
+    <div className="flex h-screen bg-dark-bg">
+      <Sidebar currentView={currentView} onViewChange={setCurrentView} />
+      
+      <main className="flex-1 overflow-y-auto">
+        <motion.div
+          key={currentView}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          transition={{ duration: 0.3 }}
+          className="p-8"
+        >
+          {renderView()}
+        </motion.div>
+      </main>
+    </div>
+  )
+}
+
+export default App
