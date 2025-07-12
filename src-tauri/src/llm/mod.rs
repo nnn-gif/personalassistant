@@ -3,7 +3,6 @@ use crate::models::{Activity, ProductivityInsights, ProductivityScore};
 use chrono::Utc;
 use genai::chat::{ChatMessage, ChatRequest};
 use genai::Client;
-use serde_json::json;
 
 pub struct LlmClient {
     model_name: String,

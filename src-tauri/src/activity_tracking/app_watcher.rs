@@ -93,7 +93,7 @@ impl AppWatcher {
         Ok(format!("{} - Window", app_name))
     }
     
-    fn categorize_app(&self, app_name: &str, bundle_id: &str) -> AppCategory {
+    fn categorize_app(&self, app_name: &str, _bundle_id: &str) -> AppCategory {
         match app_name.to_lowercase().as_str() {
             name if name.contains("code") || name.contains("xcode") || name.contains("intellij") => AppCategory::Development,
             name if name.contains("slack") || name.contains("teams") || name.contains("zoom") => AppCategory::Communication,

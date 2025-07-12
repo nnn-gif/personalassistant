@@ -41,6 +41,9 @@ pub enum AppError {
     #[error("Storage error: {0}")]
     Storage(String),
     
+    #[error("Audio error: {0}")]
+    Audio(String),
+    
     #[error("Invalid input: {0}")]
     InvalidInput(String),
     

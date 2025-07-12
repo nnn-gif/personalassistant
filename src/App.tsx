@@ -5,8 +5,9 @@ import Dashboard from './components/Dashboard'
 import ResearchAssistant from './components/ResearchAssistant'
 import GoalsManager from './components/GoalsManager'
 import ActivityMonitor from './components/ActivityMonitor'
+import AudioRecorder from './components/AudioRecorder'
 
-type View = 'dashboard' | 'research' | 'goals' | 'activity'
+type View = 'dashboard' | 'research' | 'goals' | 'activity' | 'audio'
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard')
@@ -21,6 +22,8 @@ function App() {
         return <GoalsManager />
       case 'activity':
         return <ActivityMonitor />
+      case 'audio':
+        return <AudioRecorder />
       default:
         return <Dashboard />
     }

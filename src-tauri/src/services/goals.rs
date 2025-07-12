@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::goals::GoalService;
-use crate::models::{Goal, GoalSession};
+use crate::models::Goal;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;

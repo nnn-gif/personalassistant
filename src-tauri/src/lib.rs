@@ -1,4 +1,5 @@
 pub mod activity_tracking;
+pub mod audio;
 pub mod browser_ai;
 pub mod database;
 pub mod error;

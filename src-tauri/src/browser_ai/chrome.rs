@@ -1,6 +1,5 @@
 use crate::error::{AppError, Result};
 use std::process::Command;
-use serde_json::json;
 
 pub struct ChromeController;
 
@@ -91,7 +90,7 @@ impl ChromeController {
             })
         "#;
         
-        let result = self.execute_script(script).await?;
+        let _result = self.execute_script(script).await?;
         
         // Parse the result (simplified for now)
         Ok(vec![])

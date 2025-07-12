@@ -4,7 +4,8 @@ import {
   Search, 
   Target, 
   Activity,
-  Brain
+  Brain,
+  Mic
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -17,6 +18,7 @@ const menuItems = [
   { id: 'research', label: 'Research Assistant', icon: Search },
   { id: 'goals', label: 'Goals', icon: Target },
   { id: 'activity', label: 'Activity Monitor', icon: Activity },
+  { id: 'audio', label: 'Audio Recorder', icon: Mic },
 ]
 
 export default function Sidebar({ currentView, onViewChange }: SidebarProps) {

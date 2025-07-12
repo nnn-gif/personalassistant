@@ -1,5 +1,4 @@
-use crate::error::{AppError, Result};
-use playwright::Playwright;
+use crate::error::Result;
 use scraper::{Html, Selector};
 
 pub struct ScraperEngine {

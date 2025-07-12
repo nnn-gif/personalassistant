@@ -4,6 +4,7 @@
 )]
 
 mod activity_tracking;
+mod audio;
 mod browser_ai;
 mod database;
 mod error;
@@ -39,6 +40,15 @@ fn main() {
             
             let llm_client = llm::LlmClient::new();
             app.manage(Arc::new(llm_client));
+            
+            match audio::SimpleAudioRecorder::new() {
+                Ok(recorder) => {
+                    app.manage(Arc::new(recorder));
+                },
+                Err(e) => {
+                    eprintln!("Failed to initialize audio recorder: {}", e);
+                }
+            }
             
             // Initialize storage and database
             match LocalStorage::new() {
@@ -136,6 +146,19 @@ fn main() {
             services::productivity::get_productivity_trend,
             services::productivity::get_app_usage_stats,
             services::productivity::get_current_productivity_score,
+            
+            // Audio commands
+            services::audio::list_audio_devices,
+            services::audio::start_audio_recording,
+            services::audio::stop_audio_recording,
+            services::audio::pause_audio_recording,
+            services::audio::resume_audio_recording,
+            services::audio::get_recording_status,
+            services::audio::get_recordings,
+            services::audio::transcribe_recording,
+            services::audio::generate_meeting_summary,
+            services::audio::process_audio_file,
+            services::audio::get_audio_info,
         ])
         .run(generate_context!())
         .expect("error while running tauri application");

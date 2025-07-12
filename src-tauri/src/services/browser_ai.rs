@@ -1,11 +1,10 @@
 use crate::browser_ai::BrowserAIAgent;
-use crate::database::Database;
 use crate::error::Result;
-use crate::models::{BrowserAIProgress, ResearchTask, SavedResearchTask};
+use crate::models::{ResearchTask, SavedResearchTask};
 use crate::storage::LocalStorage;
 use chrono::Utc;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 

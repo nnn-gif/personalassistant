@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use crate::models::{SavedResearchTask, ResearchTask, Goal, GoalSession, Activity};
+use crate::models::{SavedResearchTask, Goal, GoalSession, Activity};
 use surrealdb::{Surreal, engine::any::{connect, Any}};
 use surrealdb::opt::auth::Root;
 use uuid::Uuid;

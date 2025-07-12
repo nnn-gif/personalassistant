@@ -7,7 +7,7 @@ use tauri::State;
 #[tauri::command]
 pub async fn get_productivity_insights(
     llm: State<'_, Arc<LlmClient>>,
-    hours: usize,
+    _hours: usize,
 ) -> Result<ProductivityInsights> {
     // For now, return mock data until database is ready
     let activities = vec![];
@@ -17,7 +17,7 @@ pub async fn get_productivity_insights(
 #[tauri::command]
 pub async fn get_productivity_score(
     llm: State<'_, Arc<LlmClient>>,
-    hours: usize,
+    _hours: usize,
 ) -> Result<ProductivityScore> {
     // For now, return mock data until database is ready
     let activities = vec![];
@@ -27,7 +27,7 @@ pub async fn get_productivity_score(
 #[tauri::command]
 pub async fn get_recommendations(
     llm: State<'_, Arc<LlmClient>>,
-    hours: usize,
+    _hours: usize,
 ) -> Result<Vec<String>> {
     // For now, return mock data until database is ready
     let activities = vec![];

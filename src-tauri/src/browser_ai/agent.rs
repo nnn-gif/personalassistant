@@ -210,7 +210,7 @@ impl BrowserAIAgent {
     async fn plan_to_subtasks(&self, plan: &ResearchPlan) -> Result<Vec<ResearchSubtask>> {
         let mut subtasks = Vec::new();
         
-        for (i, query) in plan.search_queries.iter().enumerate() {
+        for query in plan.search_queries.iter() {
             let subtask = ResearchSubtask {
                 id: Uuid::new_v4(),
                 query: query.clone(),
