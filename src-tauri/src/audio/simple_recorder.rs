@@ -307,4 +307,26 @@ impl SimpleAudioRecorder {
     pub fn get_recordings(&self) -> Vec<AudioRecording> {
         self.recordings.lock().unwrap().clone()
     }
+    
+    pub fn delete_recording(&self, recording_id: &str) -> Result<()> {
+        let mut recordings = self.recordings.lock().unwrap();
+        
+        // Find the recording
+        let index = recordings.iter().position(|r| r.id == recording_id)
+            .ok_or_else(|| AppError::Audio(format!("Recording {} not found", recording_id)))?;
+        
+        let recording = &recordings[index];
+        let file_path = PathBuf::from(&recording.file_path);
+        
+        // Delete the file
+        if file_path.exists() {
+            fs::remove_file(&file_path)
+                .map_err(|e| AppError::Audio(format!("Failed to delete file: {}", e)))?;
+        }
+        
+        // Remove from the list
+        recordings.remove(index);
+        
+        Ok(())
+    }
 }

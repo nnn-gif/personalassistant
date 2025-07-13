@@ -49,6 +49,7 @@ export default function AudioRecorder() {
   const [duration, setDuration] = useState(0)
   const [transcribing, setTranscribing] = useState<string | null>(null)
   const [playingId, setPlayingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -201,14 +202,24 @@ export default function AudioRecorder() {
     }
   }
 
-  const deleteRecording = async (_id: string) => {
-    if (!confirm('Delete this recording?')) return
+  const deleteRecording = async (id: string) => {
+    console.log('Delete button clicked for recording:', id)
+    setDeletingId(id)
+  }
+
+  const confirmDelete = async () => {
+    if (!deletingId) return
     
     try {
-      // Would need to implement delete command
+      console.log('Invoking delete_recording command...')
+      await invoke('delete_recording', { recordingId: deletingId })
+      console.log('Delete successful, reloading recordings...')
       await loadRecordings()
+      setDeletingId(null)
     } catch (error) {
       console.error('Failed to delete recording:', error)
+      alert('Failed to delete recording: ' + error)
+      setDeletingId(null)
     }
   }
 
@@ -259,7 +270,7 @@ export default function AudioRecorder() {
         setPlayingId(recording.id)
       } catch (error) {
         console.error('Failed to play audio:', error)
-        alert(`Failed to play recording: ${error.message || error}`)
+        alert(`Failed to play recording: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
   }
@@ -430,7 +441,7 @@ export default function AudioRecorder() {
                     )}
                   </div>
                   
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 ml-4">
                     <button
                       onClick={() => void playRecording(recording)}
                       className={`btn-sm flex items-center space-x-1 ${
@@ -459,13 +470,36 @@ export default function AudioRecorder() {
                     ) : null}
                     
                     <button
-                      onClick={() => {
-                        // For download, we can use the shell API to open the file location
-                        const audioUrl = convertFileSrc(recording.file_path)
-                        const link = document.createElement('a')
-                        link.href = audioUrl
-                        link.download = `${recording.title}.wav`
-                        link.click()
+                      onClick={async () => {
+                        try {
+                          console.log('Downloading recording:', recording.title)
+                          // Convert file path to a URL that can be accessed
+                          const audioUrl = convertFileSrc(recording.file_path)
+                          
+                          // Fetch the audio file
+                          const response = await fetch(audioUrl)
+                          if (!response.ok) {
+                            throw new Error('Failed to fetch audio file')
+                          }
+                          
+                          // Get the blob
+                          const blob = await response.blob()
+                          
+                          // Create a download link
+                          const url = URL.createObjectURL(blob)
+                          const link = document.createElement('a')
+                          link.href = url
+                          link.download = `${recording.title}.wav`
+                          document.body.appendChild(link)
+                          link.click()
+                          document.body.removeChild(link)
+                          
+                          // Clean up
+                          setTimeout(() => URL.revokeObjectURL(url), 100)
+                        } catch (error) {
+                          console.error('Failed to download recording:', error)
+                          alert('Failed to download recording. Please try again.')
+                        }
                       }}
                       className="btn-secondary btn-sm flex items-center space-x-1"
                       title="Download"
@@ -474,8 +508,14 @@ export default function AudioRecorder() {
                     </button>
                     
                     <button
-                      onClick={() => deleteRecording(recording.id)}
+                      onClick={() => {
+                        console.log('Delete button onClick triggered for:', recording.id)
+                        deleteRecording(recording.id)
+                      }}
                       className="btn-secondary btn-sm text-danger hover:bg-danger/20"
+                      style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                      title="Delete recording"
+                      type="button"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -486,6 +526,36 @@ export default function AudioRecorder() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {deletingId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-dark-surface rounded-lg p-6 max-w-md w-full mx-4"
+          >
+            <h3 className="text-xl font-semibold mb-4">Delete Recording?</h3>
+            <p className="text-gray-400 mb-6">
+              Are you sure you want to delete this recording? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={() => setDeletingId(null)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="btn-danger"
+              >
+                Delete
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   )
 }

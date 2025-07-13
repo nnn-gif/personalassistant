@@ -125,3 +125,13 @@ pub async fn get_audio_info(
     let processor = AudioProcessor::new();
     processor.get_audio_info(std::path::Path::new(&audio_path))
 }
+
+#[tauri::command]
+pub async fn delete_recording(
+    #[allow(non_snake_case)]
+    recordingId: String,
+    recorder: State<'_, Arc<SimpleAudioRecorder>>,
+) -> Result<()> {
+    recorder.delete_recording(&recordingId)?;
+    Ok(())
+}

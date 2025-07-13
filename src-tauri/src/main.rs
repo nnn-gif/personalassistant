@@ -159,6 +159,7 @@ fn main() {
             services::audio::generate_meeting_summary,
             services::audio::process_audio_file,
             services::audio::get_audio_info,
+            services::audio::delete_recording,
         ])
         .run(generate_context!())
         .expect("error while running tauri application");
