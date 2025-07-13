@@ -5,7 +5,7 @@ import CurrentActivity from './activity/CurrentActivity'
 import ActivityHistory from './activity/ActivityHistory'
 
 export default function ActivityMonitor() {
-  const [isTracking, setIsTracking] = useState(false)
+  const [isTracking, setIsTracking] = useState(true)
   const [currentActivity, setCurrentActivity] = useState<any>(null)
 
   useEffect(() => {

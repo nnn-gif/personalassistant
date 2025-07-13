@@ -16,6 +16,20 @@ impl ActivityHistory {
     }
     
     pub fn add_activity(&mut self, activity: Activity) {
+        // Check if we should merge with the last activity
+        if let Some(last_activity) = self.activities.back_mut() {
+            // If same app and window title, merge the activities
+            if last_activity.app_usage.app_name == activity.app_usage.app_name
+                && last_activity.app_usage.window_title == activity.app_usage.window_title {
+                // Update duration and metrics
+                last_activity.duration_seconds += activity.duration_seconds;
+                last_activity.input_metrics.keystrokes += activity.input_metrics.keystrokes;
+                last_activity.input_metrics.mouse_clicks += activity.input_metrics.mouse_clicks;
+                last_activity.input_metrics.mouse_distance_pixels += activity.input_metrics.mouse_distance_pixels;
+                return;
+            }
+        }
+        
         // Maintain size limit
         if self.activities.len() >= MAX_HISTORY_SIZE {
             self.activities.pop_front();

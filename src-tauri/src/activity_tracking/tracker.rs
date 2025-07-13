@@ -22,7 +22,7 @@ impl ActivityTracker {
             system_monitor: SystemMonitor::new(),
             input_monitor: InputMonitor::new(),
             history: ActivityHistory::new(),
-            is_tracking: false,
+            is_tracking: true,
             current_activity: None,
         }
     }

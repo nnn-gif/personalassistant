@@ -44,9 +44,9 @@ export default function CurrentActivity({ activity }: CurrentActivityProps) {
           <div className={`p-3 rounded-lg bg-dark-bg ${getCategoryColor()}`}>
             {getCategoryIcon()}
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h4 className="font-semibold text-lg">{activity.app_usage?.app_name}</h4>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-400 text-sm mt-1 truncate" title={activity.app_usage?.window_title}>
               {activity.app_usage?.window_title}
             </p>
             

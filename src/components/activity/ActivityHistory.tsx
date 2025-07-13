@@ -66,9 +66,9 @@ export default function ActivityHistory() {
                 <Monitor className="w-4 h-4" />
               </div>
               
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="font-medium">{activity.app_usage.app_name}</p>
-                <p className="text-sm text-gray-400 truncate">
+                <p className="text-sm text-gray-400 truncate" title={activity.app_usage.window_title}>
                   {activity.app_usage.window_title}
                 </p>
               </div>
