@@ -6,8 +6,10 @@ import ResearchAssistant from './components/ResearchAssistant'
 import GoalsManager from './components/GoalsManager'
 import ActivityMonitor from './components/ActivityMonitor'
 import AudioRecorder from './components/AudioRecorder'
+import DocumentManager from './components/DocumentManager'
+import DocumentChat from './components/DocumentChat'
 
-type View = 'dashboard' | 'research' | 'goals' | 'activity' | 'audio'
+type View = 'dashboard' | 'research' | 'goals' | 'activity' | 'audio' | 'documents' | 'chat'
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard')
@@ -24,6 +26,10 @@ function App() {
         return <ActivityMonitor />
       case 'audio':
         return <AudioRecorder />
+      case 'documents':
+        return <DocumentManager />
+      case 'chat':
+        return <DocumentChat />
       default:
         return <Dashboard />
     }

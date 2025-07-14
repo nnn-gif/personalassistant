@@ -15,6 +15,9 @@ use crate::models::Goal;
 use uuid::Uuid;
 use std::path::Path;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use crate::database::SqliteDatabase;
 
 #[derive(Debug, Clone)]
 pub struct Document {
@@ -155,5 +158,15 @@ impl RAGSystem {
 
         // Re-index updated document
         self.index_document(file_path, goal_id).await
+    }
+    
+    /// Set database for persistence
+    pub async fn set_database(&mut self, database: Arc<Mutex<SqliteDatabase>>) {
+        self.vector_store.set_database(database);
+    }
+    
+    /// Load documents from database
+    pub async fn load_from_database(&mut self) -> Result<()> {
+        self.vector_store.load_from_database().await
     }
 }

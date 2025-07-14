@@ -1,6 +1,8 @@
 pub mod activity;
 pub mod audio;
 pub mod browser_ai;
+pub mod embeddings;
+pub mod file_manager;
 pub mod goals;
 pub mod llm;
 pub mod productivity;

@@ -26,6 +26,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Initialize services synchronously
             let activity_tracker = Arc::new(tokio::sync::Mutex::new(
@@ -38,24 +39,6 @@ fn main() {
             
             let llm_client = llm::LlmClient::new();
             app.manage(Arc::new(llm_client));
-            
-            // Initialize RAG system
-            let rag_system = tauri::async_runtime::block_on(async {
-                match rag::RAGSystem::new().await {
-                    Ok(rag) => {
-                        println!("RAG system initialized successfully");
-                        Some(Arc::new(tokio::sync::Mutex::new(rag)))
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to initialize RAG system: {}", e);
-                        None
-                    }
-                }
-            });
-            
-            if let Some(rag) = rag_system {
-                app.manage(rag);
-            }
             
             match audio::SimpleAudioRecorder::new() {
                 Ok(recorder) => {
@@ -82,6 +65,48 @@ fn main() {
             
             if let Some(db) = db.clone() {
                 app.manage(db.clone());
+            }
+            
+            // Initialize RAG system with database
+            let rag_system = if let Some(db) = &db {
+                tauri::async_runtime::block_on(async {
+                    match rag::RAGSystem::new().await {
+                        Ok(mut rag) => {
+                            // Connect RAG system to database
+                            rag.set_database(db.clone()).await;
+                            
+                            // Load existing documents from database
+                            if let Err(e) = rag.load_from_database().await {
+                                eprintln!("Failed to load documents from database: {}", e);
+                            } else {
+                                println!("RAG system initialized successfully with database persistence");
+                            }
+                            
+                            Some(Arc::new(tokio::sync::Mutex::new(rag)))
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to initialize RAG system: {}", e);
+                            None
+                        }
+                    }
+                })
+            } else {
+                tauri::async_runtime::block_on(async {
+                    match rag::RAGSystem::new().await {
+                        Ok(rag) => {
+                            println!("RAG system initialized successfully (no database)");
+                            Some(Arc::new(tokio::sync::Mutex::new(rag)))
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to initialize RAG system: {}", e);
+                            None
+                        }
+                    }
+                })
+            };
+            
+            if let Some(rag) = rag_system {
+                app.manage(rag);
             }
             
             // Initialize storage (for migration purposes)
@@ -203,6 +228,10 @@ fn main() {
             services::llm::get_productivity_insights,
             services::llm::get_productivity_score,
             services::llm::get_recommendations,
+            services::llm::chat_with_documents,
+            
+            // Embedding commands
+            services::embeddings::test_embeddings,
             
             // Productivity commands
             services::productivity::get_productivity_trend,
@@ -233,6 +262,14 @@ fn main() {
             services::rag::update_document_index,
             services::rag::get_supported_file_types,
             services::rag::check_file_supported,
+            services::rag::inspect_rag_database,
+            services::rag::cleanup_corrupted_documents,
+            
+            // File manager commands
+            services::file_manager::scan_folder_for_documents,
+            services::file_manager::get_file_info,
+            services::file_manager::index_multiple_documents,
+            services::file_manager::get_folder_stats,
         ])
         .run(generate_context!())
         .expect("error while running tauri application");

@@ -149,6 +149,129 @@ pub async fn check_file_supported(file_path: String) -> std::result::Result<bool
     Ok(processor.is_supported_file(&file_path))
 }
 
+#[tauri::command]
+pub async fn inspect_rag_database(
+    rag_system: State<'_, RAGState>,
+) -> std::result::Result<DatabaseInspection, String> {
+    let rag = rag_system.lock().await;
+    
+    // Get all documents
+    let documents = rag.list_documents(None).await.map_err(|e| e.to_string())?;
+    
+    let mut document_summaries = Vec::new();
+    let mut total_chunks = 0;
+    let mut corrupted_count = 0;
+    
+    for document in documents {
+        let content_preview = if document.content.len() > 200 {
+            format!("{}...", &document.content[..200])
+        } else {
+            document.content.clone()
+        };
+        
+        let is_corrupted = {
+            let content_lower = document.content.to_lowercase();
+            content_lower.contains("identity-h") || 
+            content_lower.contains("unimplemented") ||
+            content_lower.contains("unimpl") ||
+            document.content.trim().is_empty()
+        };
+        
+        if is_corrupted {
+            corrupted_count += 1;
+        }
+        
+        total_chunks += document.chunks.len();
+        
+        document_summaries.push(DocumentSummary {
+            id: document.id.to_string(),
+            title: document.title,
+            file_path: document.file_path,
+            content_preview,
+            chunks_count: document.chunks.len(),
+            goal_id: document.goal_id.map(|g| g.to_string()),
+            created_at: document.created_at.to_rfc3339(),
+            is_corrupted,
+            content_length: document.content.len(),
+        });
+    }
+    
+    Ok(DatabaseInspection {
+        total_documents: document_summaries.len(),
+        total_chunks,
+        corrupted_documents: corrupted_count,
+        documents: document_summaries,
+    })
+}
+
+#[tauri::command]
+pub async fn cleanup_corrupted_documents(
+    rag_system: State<'_, RAGState>,
+) -> std::result::Result<CleanupResult, String> {
+    let mut rag = rag_system.lock().await;
+    
+    // Get all documents
+    let documents = rag.list_documents(None).await.map_err(|e| e.to_string())?;
+    
+    let mut removed_count = 0;
+    let mut removed_ids = Vec::new();
+    
+    for document in documents {
+        // Check if document content contains corrupted text
+        let content_lower = document.content.to_lowercase();
+        if content_lower.contains("identity-h") || 
+           content_lower.contains("unimplemented") ||
+           content_lower.contains("unimpl") ||
+           document.content.trim().is_empty() ||
+           document.chunks.is_empty() {
+            
+            println!("Removing corrupted document: {} ({})", document.title, document.id);
+            
+            match rag.remove_document(document.id).await {
+                Ok(_) => {
+                    removed_count += 1;
+                    removed_ids.push(document.id.to_string());
+                }
+                Err(e) => {
+                    eprintln!("Failed to remove document {}: {}", document.id, e);
+                }
+            }
+        }
+    }
+    
+    Ok(CleanupResult {
+        removed_count,
+        removed_ids,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct DatabaseInspection {
+    pub total_documents: usize,
+    pub total_chunks: usize,
+    pub corrupted_documents: usize,
+    pub documents: Vec<DocumentSummary>,
+}
+
+#[derive(serde::Serialize)]
+pub struct DocumentSummary {
+    pub id: String,
+    pub title: String,
+    pub file_path: String,
+    pub content_preview: String,
+    pub chunks_count: usize,
+    pub goal_id: Option<String>,
+    pub created_at: String,
+    pub is_corrupted: bool,
+    pub content_length: usize,
+}
+
+#[derive(serde::Serialize)]
+pub struct CleanupResult {
+    pub removed_count: usize,
+    pub removed_ids: Vec<String>,
+}
+
 // Response types for frontend
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SearchResultResponse {

@@ -3,14 +3,15 @@ use crate::rag::{Document, DocumentChunk, SearchResult};
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Mutex};
+use crate::database::SqliteDatabase;
 
-// In-memory vector store for now
-// In production, you'd use a proper vector database like Qdrant or LanceDB
+// Hybrid vector store with in-memory cache and database persistence
 pub struct VectorStore {
     documents: Arc<RwLock<HashMap<Uuid, Document>>>,
     chunks: Arc<RwLock<HashMap<Uuid, DocumentChunk>>>,
     goal_index: Arc<RwLock<HashMap<Uuid, Vec<Uuid>>>>, // goal_id -> document_ids
+    database: Option<Arc<Mutex<SqliteDatabase>>>,
 }
 
 impl VectorStore {
@@ -19,16 +20,65 @@ impl VectorStore {
             documents: Arc::new(RwLock::new(HashMap::new())),
             chunks: Arc::new(RwLock::new(HashMap::new())),
             goal_index: Arc::new(RwLock::new(HashMap::new())),
+            database: None,
         })
+    }
+    
+    pub fn set_database(&mut self, database: Arc<Mutex<SqliteDatabase>>) {
+        self.database = Some(database);
+    }
+    
+    pub async fn load_from_database(&self) -> Result<()> {
+        if let Some(db) = &self.database {
+            let database = db.lock().await;
+            let documents = database.load_documents(None).await?;
+            
+            let mut doc_store = self.documents.write().await;
+            let mut chunk_store = self.chunks.write().await;
+            let mut goal_index = self.goal_index.write().await;
+            
+            for document in documents {
+                // Store document chunks
+                for chunk in &document.chunks {
+                    chunk_store.insert(chunk.id, chunk.clone());
+                }
+                
+                // Update goal index
+                if let Some(goal_id) = document.goal_id {
+                    goal_index.entry(goal_id).or_insert_with(Vec::new).push(document.id);
+                }
+                
+                // Store document (without chunks to avoid duplication)
+                let mut doc_for_store = document.clone();
+                doc_for_store.chunks = Vec::new();
+                doc_store.insert(document.id, doc_for_store);
+            }
+            
+            println!("Loaded {} documents from database", doc_store.len());
+        }
+        
+        Ok(())
     }
 
     pub async fn store_document(&self, document: &Document, chunks: &[DocumentChunk]) -> Result<()> {
+        // Save to database first
+        if let Some(db) = &self.database {
+            let database = db.lock().await;
+            database.save_document(document).await?;
+            for chunk in chunks {
+                database.save_document_chunk(chunk).await?;
+            }
+        }
+        
+        // Update in-memory cache
         let mut documents = self.documents.write().await;
         let mut chunks_store = self.chunks.write().await;
         let mut goal_index = self.goal_index.write().await;
 
-        // Store document
-        documents.insert(document.id, document.clone());
+        // Store document (without chunks to avoid duplication)
+        let mut doc_for_cache = document.clone();
+        doc_for_cache.chunks = Vec::new();
+        documents.insert(document.id, doc_for_cache);
 
         // Store chunks
         for chunk in chunks {
@@ -125,6 +175,13 @@ impl VectorStore {
     }
 
     pub async fn remove_document(&self, document_id: Uuid) -> Result<()> {
+        // Delete from database first
+        if let Some(db) = &self.database {
+            let database = db.lock().await;
+            database.delete_document(document_id).await?;
+        }
+        
+        // Update in-memory cache
         let mut documents = self.documents.write().await;
         let mut chunks = self.chunks.write().await;
         let mut goal_index = self.goal_index.write().await;
@@ -150,16 +207,29 @@ impl VectorStore {
 
     pub async fn list_documents(&self, goal_id: Option<Uuid>) -> Result<Vec<Document>> {
         let documents = self.documents.read().await;
+        let chunks = self.chunks.read().await;
         
         let mut result = Vec::new();
         
         for document in documents.values() {
             if let Some(goal_id) = goal_id {
                 if document.goal_id == Some(goal_id) {
-                    result.push(document.clone());
+                    let mut doc_with_chunks = document.clone();
+                    // Find and populate chunks for this document
+                    doc_with_chunks.chunks = chunks.values()
+                        .filter(|chunk| chunk.document_id == document.id)
+                        .cloned()
+                        .collect();
+                    result.push(doc_with_chunks);
                 }
             } else {
-                result.push(document.clone());
+                let mut doc_with_chunks = document.clone();
+                // Find and populate chunks for this document
+                doc_with_chunks.chunks = chunks.values()
+                    .filter(|chunk| chunk.document_id == document.id)
+                    .cloned()
+                    .collect();
+                result.push(doc_with_chunks);
             }
         }
 
@@ -213,6 +283,7 @@ impl Clone for VectorStore {
             documents: Arc::clone(&self.documents),
             chunks: Arc::clone(&self.chunks),
             goal_index: Arc::clone(&self.goal_index),
+            database: self.database.clone(),
         }
     }
 }
