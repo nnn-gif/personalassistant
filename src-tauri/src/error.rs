@@ -47,6 +47,9 @@ pub enum AppError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
     
+    #[error("Processing error: {0}")]
+    ProcessingError(String),
+    
     #[error("Generic error: {0}")]
     Generic(#[from] anyhow::Error),
 }

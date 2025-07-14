@@ -44,6 +44,11 @@ rubato = "0.14"
 ringbuf = "0.3"
 crossbeam-channel = "0.5"
 sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "uuid"] }
+# Document processing
+lopdf = "0.30"
+zip = "0.6"
+walkdir = "2.4"
+mime_guess = "2.0"
 # Simplified approach - use system tools and enhanced Ollama
 # vosk = "0.3.1"  # Commented out due to native library dependencies
 

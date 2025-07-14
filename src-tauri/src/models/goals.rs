@@ -9,6 +9,8 @@ pub struct Goal {
     pub target_duration_minutes: u32,
     pub allowed_apps: Vec<String>,
     pub current_duration_minutes: u32,
+    #[serde(default)]
+    pub current_duration_seconds: u32,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -32,6 +34,7 @@ impl Goal {
             target_duration_minutes,
             allowed_apps,
             current_duration_minutes: 0,
+            current_duration_seconds: 0,
             is_active: false,
             created_at: now,
             updated_at: now,
@@ -40,6 +43,17 @@ impl Goal {
     
     pub fn update_progress(&mut self, additional_minutes: u32) {
         self.current_duration_minutes += additional_minutes;
+        self.updated_at = Utc::now();
+    }
+    
+    pub fn update_progress_seconds(&mut self, additional_seconds: u32) {
+        // Accumulate seconds and convert to minutes when we reach 60 seconds
+        self.current_duration_seconds += additional_seconds;
+        if self.current_duration_seconds >= 60 {
+            let additional_minutes = self.current_duration_seconds / 60;
+            self.current_duration_minutes += additional_minutes;
+            self.current_duration_seconds %= 60;
+        }
         self.updated_at = Utc::now();
     }
     

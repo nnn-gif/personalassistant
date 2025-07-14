@@ -184,6 +184,25 @@ impl GoalService {
         Ok(())
     }
     
+    pub async fn update_active_goal_progress_seconds(&mut self, app_name: &str, seconds: u32) -> Result<()> {
+        if let Some(goal_id) = self.active_goal_id {
+            let should_update = self.goals_cache.get(&goal_id)
+                .map(|goal| goal.is_app_allowed(app_name))
+                .unwrap_or(false);
+            
+            if should_update {
+                if let Some(goal) = self.goals_cache.get_mut(&goal_id) {
+                    goal.update_progress_seconds(seconds);
+                }
+                // Save to database
+                let goal = self.goals_cache.get(&goal_id).unwrap();
+                self.save_goal(goal).await?;
+            }
+        }
+        
+        Ok(())
+    }
+    
     pub fn get_goal_sessions(&self, goal_id: &Uuid) -> Option<&Vec<GoalSession>> {
         self.sessions.get(goal_id)
     }

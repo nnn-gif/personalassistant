@@ -11,6 +11,7 @@ mod error;
 mod goals;
 mod llm;
 mod models;
+mod rag;
 mod services;
 mod storage;
 
@@ -37,6 +38,24 @@ fn main() {
             
             let llm_client = llm::LlmClient::new();
             app.manage(Arc::new(llm_client));
+            
+            // Initialize RAG system
+            let rag_system = tauri::async_runtime::block_on(async {
+                match rag::RAGSystem::new().await {
+                    Ok(rag) => {
+                        println!("RAG system initialized successfully");
+                        Some(Arc::new(tokio::sync::Mutex::new(rag)))
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to initialize RAG system: {}", e);
+                        None
+                    }
+                }
+            });
+            
+            if let Some(rag) = rag_system {
+                app.manage(rag);
+            }
             
             match audio::SimpleAudioRecorder::new() {
                 Ok(recorder) => {
@@ -142,9 +161,9 @@ fn main() {
                                 // Update goal progress if activity is part of active goal
                                 if activity.goal_id.is_some() {
                                     let mut goal_service = goal_service_clone.lock().await;
-                                    let _ = goal_service.update_active_goal_progress(
+                                    let _ = goal_service.update_active_goal_progress_seconds(
                                         &activity.app_usage.app_name, 
-                                        (activity.duration_seconds / 60) as u32
+                                        activity.duration_seconds as u32
                                     );
                                 }
                             }
@@ -203,6 +222,17 @@ fn main() {
             services::audio::process_audio_file,
             services::audio::get_audio_info,
             services::audio::delete_recording,
+            
+            // RAG commands
+            services::rag::initialize_rag,
+            services::rag::index_document,
+            services::rag::search_documents,
+            services::rag::get_goal_context,
+            services::rag::list_indexed_documents,
+            services::rag::remove_document,
+            services::rag::update_document_index,
+            services::rag::get_supported_file_types,
+            services::rag::check_file_supported,
         ])
         .run(generate_context!())
         .expect("error while running tauri application");

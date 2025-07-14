@@ -50,6 +50,7 @@ impl SqliteDatabase {
                 allowed_apps TEXT NOT NULL,
                 progress_percentage REAL NOT NULL DEFAULT 0,
                 time_spent_minutes INTEGER NOT NULL DEFAULT 0,
+                time_spent_seconds INTEGER NOT NULL DEFAULT 0,
                 is_active BOOLEAN NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -58,6 +59,12 @@ impl SqliteDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to create goals table: {}", e)))?;
+        
+        // Add seconds column to existing goals table if it doesn't exist
+        sqlx::query("ALTER TABLE goals ADD COLUMN time_spent_seconds INTEGER DEFAULT 0")
+            .execute(&self.pool)
+            .await
+            .ok(); // Ignore error if column already exists
         
         // Activities table
         sqlx::query(r#"
@@ -139,14 +146,15 @@ impl SqliteDatabase {
         
         sqlx::query(r#"
             INSERT INTO goals (id, name, duration_minutes, allowed_apps, progress_percentage, 
-                             time_spent_minutes, is_active, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                             time_spent_minutes, time_spent_seconds, is_active, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 duration_minutes = excluded.duration_minutes,
                 allowed_apps = excluded.allowed_apps,
                 progress_percentage = excluded.progress_percentage,
                 time_spent_minutes = excluded.time_spent_minutes,
+                time_spent_seconds = excluded.time_spent_seconds,
                 is_active = excluded.is_active,
                 updated_at = excluded.updated_at
         "#)
@@ -156,6 +164,7 @@ impl SqliteDatabase {
         .bind(allowed_apps_json)
         .bind(goal.progress_percentage())
         .bind(goal.current_duration_minutes as i32)
+        .bind(goal.current_duration_seconds as i32)
         .bind(goal.is_active)
         .bind(goal.created_at.to_rfc3339())
         .bind(goal.updated_at.to_rfc3339())
@@ -168,7 +177,7 @@ impl SqliteDatabase {
     
     pub async fn get_all_goals(&self) -> Result<Vec<Goal>> {
         let rows = sqlx::query(
-            "SELECT id, name, duration_minutes, allowed_apps, progress_percentage, time_spent_minutes, is_active, created_at, updated_at FROM goals ORDER BY created_at DESC"
+            "SELECT id, name, duration_minutes, allowed_apps, progress_percentage, time_spent_minutes, time_spent_seconds, is_active, created_at, updated_at FROM goals ORDER BY created_at DESC"
         )
         .fetch_all(&self.pool)
         .await
@@ -186,6 +195,7 @@ impl SqliteDatabase {
                 target_duration_minutes: row.get::<Option<i32>, _>("duration_minutes").unwrap_or(0) as u32,
                 allowed_apps,
                 current_duration_minutes: row.get::<i32, _>("time_spent_minutes") as u32,
+                current_duration_seconds: row.get::<Option<i32>, _>("time_spent_seconds").unwrap_or(0) as u32,
                 is_active: row.get("is_active"),
                 created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
                     .map_err(|e| AppError::Database(format!("Invalid created_at date: {}", e)))?
