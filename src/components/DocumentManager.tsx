@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
 import { motion } from 'framer-motion'
 
@@ -17,6 +18,9 @@ interface IndexingProgress {
   currentFile: string
   progress: number
   total: number
+  phase?: string
+  taskId?: string
+  error?: string
 }
 
 interface FolderStats {
@@ -66,7 +70,64 @@ export default function DocumentManager() {
     loadIndexedDocuments()
     loadGoals()
     loadSupportedTypes()
-  }, [])
+    
+    // Set up event listeners for async indexing
+    const setupEventListeners = async () => {
+      const unlistenProgress = await listen('indexing-progress', (event: any) => {
+        const progress = event.payload
+        setIndexingProgress({
+          isIndexing: progress.status === 'processing' || progress.status === 'starting',
+          currentFile: progress.current_file,
+          progress: progress.progress,
+          total: progress.total,
+          phase: progress.phase,
+          taskId: progress.task_id,
+          error: progress.error
+        })
+        
+        if (progress.status === 'completed' || progress.status === 'error') {
+          setTimeout(() => {
+            setIndexingProgress({
+              isIndexing: false,
+              currentFile: '',
+              progress: 0,
+              total: 0
+            })
+          }, 2000) // Show completion for 2 seconds
+        }
+      })
+      
+      const unlistenIndexed = await listen('document-indexed', (event: any) => {
+        console.log('Document indexed:', event.payload)
+        loadIndexedDocuments() // Refresh the list
+      })
+      
+      return () => {
+        unlistenProgress()
+        unlistenIndexed()
+      }
+    }
+    
+    // Set up keyboard event listeners for modal handling
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showFolderPreview) {
+          setShowFolderPreview(false)
+          setFolderStats(null)
+        }
+        if (indexingResult) {
+          setIndexingResult(null)
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    setupEventListeners()
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [showFolderPreview, indexingResult])
 
   const loadIndexedDocuments = async () => {
     try {
@@ -147,6 +208,10 @@ export default function DocumentManager() {
   const confirmFolderIndexing = async () => {
     if (!folderStats) return
 
+    // Close the modal immediately to prevent UI issues
+    setShowFolderPreview(false)
+    setFolderStats(null)
+
     try {
       const files = await invoke<string[]>('scan_folder_for_documents', {
         folderPath: folderStats.folder_path,
@@ -172,49 +237,39 @@ export default function DocumentManager() {
       console.error('Failed to index folder:', error)
     } finally {
       setIndexingProgress({ isIndexing: false, currentFile: '', progress: 0, total: 0 })
-      setShowFolderPreview(false)
-      setFolderStats(null)
     }
   }
 
   const indexSingleFile = async (filePath: string) => {
-    setIndexingProgress({ isIndexing: true, currentFile: filePath, progress: 0, total: 1 })
+    const taskId = `index_${Date.now()}`
     
     try {
-      await invoke('index_document', {
+      await invoke('index_document_async', {
         filePath,
-        goalId: selectedGoal || null
+        goalId: selectedGoal || null,
+        taskId
       })
-      
-      setIndexingProgress(prev => ({ ...prev, progress: 1 }))
-      await loadIndexedDocuments()
+      console.log('Async indexing started for:', filePath)
     } catch (error) {
-      console.error('Failed to index file:', error)
-    } finally {
+      console.error('Failed to start indexing:', error)
       setIndexingProgress({ isIndexing: false, currentFile: '', progress: 0, total: 0 })
     }
   }
 
   const indexMultipleFiles = async (filePaths: string[]) => {
-    setIndexingProgress({ isIndexing: true, currentFile: '', progress: 0, total: filePaths.length })
+    const taskId = `batch_${Date.now()}`
     
-    for (let i = 0; i < filePaths.length; i++) {
-      const filePath = filePaths[i]
-      setIndexingProgress(prev => ({ ...prev, currentFile: filePath, progress: i }))
-      
-      try {
-        await invoke('index_document', {
-          filePath,
-          goalId: selectedGoal || null
-        })
-      } catch (error) {
-        console.error(`Failed to index file ${filePath}:`, error)
+    try {
+      // For now, index files one by one with async calls
+      for (const filePath of filePaths) {
+        await indexSingleFile(filePath)
+        // Small delay to prevent overwhelming the system
+        await new Promise(resolve => setTimeout(resolve, 100))
       }
+    } catch (error) {
+      console.error('Failed to start batch indexing:', error)
+      setIndexingProgress({ isIndexing: false, currentFile: '', progress: 0, total: 0 })
     }
-    
-    setIndexingProgress(prev => ({ ...prev, progress: filePaths.length }))
-    await loadIndexedDocuments()
-    setIndexingProgress({ isIndexing: false, currentFile: '', progress: 0, total: 0 })
   }
 
   const formatFileSize = (bytes: number) => {
@@ -366,7 +421,9 @@ export default function DocumentManager() {
           className="bg-dark-card p-4 rounded-lg border border-dark-border"
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white">Indexing Documents...</span>
+            <span className="text-white">
+              {indexingProgress.phase || 'Indexing Documents...'}
+            </span>
             <span className="text-sm text-gray-400">
               {indexingProgress.progress} / {indexingProgress.total}
             </span>
@@ -375,13 +432,25 @@ export default function DocumentManager() {
           <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
             <div
               className="bg-primary h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(indexingProgress.progress / indexingProgress.total) * 100}%` }}
+              style={{ width: `${(indexingProgress.progress / Math.max(indexingProgress.total, 1)) * 100}%` }}
             />
           </div>
           
           {indexingProgress.currentFile && (
             <p className="text-sm text-gray-400 truncate">
               Current: {indexingProgress.currentFile}
+            </p>
+          )}
+          
+          {indexingProgress.error && (
+            <p className="text-sm text-red-400 mt-2">
+              Error: {indexingProgress.error}
+            </p>
+          )}
+          
+          {indexingProgress.taskId && (
+            <p className="text-xs text-gray-500 mt-1">
+              Task: {indexingProgress.taskId}
             </p>
           )}
         </motion.div>
@@ -476,11 +545,36 @@ export default function DocumentManager() {
 
       {/* Folder Preview Modal */}
       {showFolderPreview && folderStats && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[9999] backdrop-blur-sm"
+          style={{ 
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(2px)'
+          }}
+          onClick={(e) => {
+            // Close modal when clicking on backdrop
+            if (e.target === e.currentTarget) {
+              setShowFolderPreview(false)
+              setFolderStats(null)
+            }
+          }}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-dark-card p-6 rounded-lg border border-dark-border max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="bg-gray-900 border border-gray-700 p-6 rounded-lg shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+            style={{
+              backgroundColor: '#111827',
+              border: '1px solid #374151',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+            }}
+            onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-xl font-bold text-white mb-4">Folder Preview</h3>
             
@@ -542,11 +636,35 @@ export default function DocumentManager() {
 
       {/* Indexing Result Modal */}
       {indexingResult && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[9999] backdrop-blur-sm"
+          style={{ 
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(2px)'
+          }}
+          onClick={(e) => {
+            // Close modal when clicking on backdrop
+            if (e.target === e.currentTarget) {
+              setIndexingResult(null)
+            }
+          }}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-dark-card p-6 rounded-lg border border-dark-border max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="bg-gray-900 border border-gray-700 p-6 rounded-lg shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+            style={{
+              backgroundColor: '#111827',
+              border: '1px solid #374151',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+            }}
+            onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-xl font-bold text-white mb-4">Indexing Complete</h3>
             

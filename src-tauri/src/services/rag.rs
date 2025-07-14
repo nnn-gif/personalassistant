@@ -1,5 +1,5 @@
 use crate::rag::RAGSystem;
-use tauri::State;
+use tauri::{State, Manager, AppHandle, Emitter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -30,6 +30,101 @@ pub async fn index_document(
     let document = rag.index_document(&file_path, goal_uuid).await.map_err(|e| e.to_string())?;
     
     Ok(format!("Document indexed successfully: {}", document.id))
+}
+
+#[tauri::command]
+pub async fn index_document_async(
+    app: AppHandle,
+    rag_system: State<'_, RAGState>,
+    file_path: String,
+    goal_id: Option<String>,
+    task_id: String,
+) -> std::result::Result<String, String> {
+    let rag_system = rag_system.inner().clone();
+    let app_handle = app.clone();
+    let task_id_clone = task_id.clone();
+    
+    // Spawn async task to prevent UI blocking
+    tokio::spawn(async move {
+        // Emit start event
+        let _ = app_handle.emit("indexing-progress", IndexingProgress {
+            task_id: task_id_clone.clone(),
+            status: "starting".to_string(),
+            current_file: file_path.clone(),
+            progress: 0,
+            total: 1,
+            phase: "Preparing".to_string(),
+            error: None,
+        });
+
+        let goal_uuid = if let Some(goal_str) = goal_id {
+            match Uuid::parse_str(&goal_str) {
+                Ok(uuid) => Some(uuid),
+                Err(e) => {
+                    let _ = app_handle.emit("indexing-progress", IndexingProgress {
+                        task_id: task_id_clone.clone(),
+                        status: "error".to_string(),
+                        current_file: file_path.clone(),
+                        progress: 0,
+                        total: 1,
+                        phase: "Error".to_string(),
+                        error: Some(format!("Invalid goal ID: {}", e)),
+                    });
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Emit processing event
+        let _ = app_handle.emit("indexing-progress", IndexingProgress {
+            task_id: task_id_clone.clone(),
+            status: "processing".to_string(),
+            current_file: file_path.clone(),
+            progress: 0,
+            total: 1,
+            phase: "Processing document".to_string(),
+            error: None,
+        });
+
+        // Perform actual indexing
+        let mut rag = rag_system.lock().await;
+        
+        match rag.index_document(&file_path, goal_uuid).await {
+            Ok(document) => {
+                let _ = app_handle.emit("indexing-progress", IndexingProgress {
+                    task_id: task_id_clone.clone(),
+                    status: "completed".to_string(),
+                    current_file: file_path.clone(),
+                    progress: 1,
+                    total: 1,
+                    phase: "Completed".to_string(),
+                    error: None,
+                });
+                
+                let _ = app_handle.emit("document-indexed", DocumentIndexedEvent {
+                    task_id: task_id_clone,
+                    document_id: document.id.to_string(),
+                    title: document.title,
+                    chunks_count: document.chunks.len(),
+                });
+            }
+            Err(e) => {
+                let _ = app_handle.emit("indexing-progress", IndexingProgress {
+                    task_id: task_id_clone,
+                    status: "error".to_string(),
+                    current_file: file_path.clone(),
+                    progress: 0,
+                    total: 1,
+                    phase: "Error".to_string(),
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+    });
+
+    Ok(format!("Indexing started with task ID: {}", task_id))
 }
 
 #[tauri::command]
@@ -270,6 +365,34 @@ pub struct DocumentSummary {
 pub struct CleanupResult {
     pub removed_count: usize,
     pub removed_ids: Vec<String>,
+}
+
+// Event types for async indexing
+#[derive(serde::Serialize, Clone)]
+pub struct IndexingProgress {
+    pub task_id: String,
+    pub status: String, // "starting", "processing", "completed", "error"
+    pub current_file: String,
+    pub progress: usize,
+    pub total: usize,
+    pub phase: String,
+    pub error: Option<String>,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct DocumentIndexedEvent {
+    pub task_id: String,
+    pub document_id: String,
+    pub title: String,
+    pub chunks_count: usize,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct BatchIndexingResult {
+    pub task_id: String,
+    pub total_files: usize,
+    pub successful: usize,
+    pub failed: usize,
 }
 
 // Response types for frontend

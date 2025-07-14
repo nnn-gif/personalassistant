@@ -255,6 +255,7 @@ fn main() {
             // RAG commands
             services::rag::initialize_rag,
             services::rag::index_document,
+            services::rag::index_document_async,
             services::rag::search_documents,
             services::rag::get_goal_context,
             services::rag::list_indexed_documents,
