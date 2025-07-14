@@ -1,4 +1,5 @@
 use crate::audio::{SimpleAudioRecorder, AudioProcessor};
+use crate::audio::transcriber::{AudioTranscriber, TranscriptionMethod};
 use crate::error::Result;
 use crate::llm::LlmClient;
 use std::sync::Arc;
@@ -75,20 +76,42 @@ pub async fn get_recordings(
 
 #[tauri::command]
 pub async fn transcribe_recording(
-    _recording_id: String,
-    _recording_path: String,
+    recording_id: String,
+    recording_path: String,
+    llm: State<'_, Arc<LlmClient>>,
+    recorder: State<'_, Arc<SimpleAudioRecorder>>,
 ) -> Result<String> {
-    // Return placeholder for now
-    Ok("Transcription placeholder".to_string())
+    // Check if transcription already exists
+    let recordings = recorder.get_recordings();
+    if let Some(recording) = recordings.iter().find(|r| r.id == recording_id) {
+        if let Some(ref existing_transcription) = recording.transcription {
+            // Return existing transcription if it exists
+            return Ok(existing_transcription.clone());
+        }
+    }
+    
+    // If no existing transcription, create a new one
+    let transcriber = AudioTranscriber::new(llm.inner().clone());
+    let result = transcriber.transcribe_audio(
+        std::path::Path::new(&recording_path),
+        Some(TranscriptionMethod::Whisper)
+    ).await?;
+    
+    // Save the transcription to the recording
+    let transcription_json = serde_json::to_string(&result)?;
+    recorder.update_transcription(&recording_id, transcription_json.clone())?;
+    
+    Ok(transcription_json)
 }
 
 #[tauri::command]
 pub async fn generate_meeting_summary(
-    _transcription: String,
-    _llm: State<'_, Arc<LlmClient>>,
+    transcription: String,
+    llm: State<'_, Arc<LlmClient>>,
 ) -> Result<String> {
-    // Return placeholder for now
-    Ok("Meeting summary placeholder".to_string())
+    let transcriber = AudioTranscriber::new(llm.inner().clone());
+    let summary = transcriber.generate_meeting_summary(&transcription).await?;
+    Ok(serde_json::to_string(&summary)?)
 }
 
 #[tauri::command]

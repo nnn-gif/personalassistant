@@ -11,6 +11,7 @@ pub struct Activity {
     pub input_metrics: InputMetrics,
     pub system_state: SystemState,
     pub project_context: Option<ProjectContext>,
+    pub goal_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

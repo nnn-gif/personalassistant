@@ -1,8 +1,11 @@
 use crate::error::Result;
 use crate::models::Activity;
+use crate::database::SqliteDatabase;
 use super::{AppWatcher, ProjectDetector, SystemMonitor, InputMonitor, ActivityHistory};
 use chrono::Utc;
 use uuid::Uuid;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct ActivityTracker {
     app_watcher: AppWatcher,
@@ -12,6 +15,7 @@ pub struct ActivityTracker {
     history: ActivityHistory,
     is_tracking: bool,
     current_activity: Option<Activity>,
+    db: Option<Arc<Mutex<SqliteDatabase>>>,
 }
 
 impl ActivityTracker {
@@ -24,7 +28,12 @@ impl ActivityTracker {
             history: ActivityHistory::new(),
             is_tracking: true,
             current_activity: None,
+            db: None,
         }
+    }
+    
+    pub fn set_database(&mut self, db: Arc<Mutex<SqliteDatabase>>) {
+        self.db = Some(db);
     }
     
     pub async fn start_tracking(&mut self) -> Result<()> {
@@ -41,7 +50,7 @@ impl ActivityTracker {
         self.is_tracking
     }
     
-    pub async fn collect_activity(&mut self) -> Result<Activity> {
+    pub async fn collect_activity(&mut self, active_goal: Option<(Uuid, Vec<String>)>) -> Result<Activity> {
         let app_usage = self.app_watcher.get_current_app()?;
         let project_context = self.project_detector
             .detect_project(&app_usage.app_name, &app_usage.window_title)?;
@@ -52,6 +61,17 @@ impl ActivityTracker {
         // Get real system state
         let system_state = self.system_monitor.get_system_state()?;
         
+        // Check if current app is part of active goal
+        let goal_id = if let Some((goal_id, allowed_apps)) = active_goal {
+            if allowed_apps.iter().any(|app| app.eq_ignore_ascii_case(&app_usage.app_name)) {
+                Some(goal_id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
         let activity = Activity {
             id: Uuid::new_v4(),
             timestamp: Utc::now(),
@@ -60,10 +80,25 @@ impl ActivityTracker {
             input_metrics,
             system_state,
             project_context,
+            goal_id,
         };
         
         // Store in history
         self.history.add_activity(activity.clone());
+        
+        // Save to database
+        if let Some(db) = &self.db {
+            let db_clone = db.clone();
+            let activity_clone = activity.clone();
+            // Save in background to avoid blocking
+            tokio::spawn(async move {
+                if let Ok(_) = db_clone.lock().await.save_activity(&activity_clone).await {
+                    // Saved successfully
+                } else {
+                    eprintln!("Failed to save activity to database");
+                }
+            });
+        }
         
         self.current_activity = Some(activity.clone());
         Ok(activity)

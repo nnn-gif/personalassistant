@@ -17,7 +17,7 @@ mod storage;
 use error::AppError;
 use std::sync::Arc;
 use tauri::{generate_context, generate_handler, Manager};
-use database::Database;
+use database::SqliteDatabase;
 use storage::LocalStorage;
 
 fn main() {
@@ -35,9 +35,6 @@ fn main() {
             let browser_ai = browser_ai::BrowserAIAgent::new();
             app.manage(Arc::new(tokio::sync::Mutex::new(browser_ai)));
             
-            let goal_service = goals::GoalService::new();
-            app.manage(Arc::new(tokio::sync::Mutex::new(goal_service)));
-            
             let llm_client = llm::LlmClient::new();
             app.manage(Arc::new(llm_client));
             
@@ -50,60 +47,106 @@ fn main() {
                 }
             }
             
-            // Initialize storage and database
-            match LocalStorage::new() {
-                Ok(storage) => {
-                    app.manage(Arc::new(tokio::sync::Mutex::new(storage)));
-                    println!("Local storage initialized successfully");
-                }
-                Err(e) => {
-                    eprintln!("Failed to initialize local storage: {}", e);
-                }
-            }
-            
-            // Initialize database synchronously in a blocking task
-            let (tx, rx) = std::sync::mpsc::channel();
-            tauri::async_runtime::spawn(async move {
-                match Database::new("personalassistant").await {
+            // Initialize SQLite database
+            let db = tauri::async_runtime::block_on(async {
+                match SqliteDatabase::new().await {
                     Ok(db) => {
-                        tx.send(Ok(db)).unwrap();
+                        println!("SQLite database initialized successfully");
+                        Some(Arc::new(tokio::sync::Mutex::new(db)))
                     }
                     Err(e) => {
-                        eprintln!("Failed to initialize database: {}", e);
-                        tx.send(Err(e)).unwrap();
+                        eprintln!("Failed to initialize SQLite database: {}", e);
+                        None
                     }
                 }
             });
             
-            // Wait for database initialization
-            match rx.recv() {
-                Ok(Ok(db)) => {
-                    app.manage(Arc::new(tokio::sync::Mutex::new(db)));
-                    println!("Database initialized successfully");
-                }
-                Ok(Err(e)) => {
-                    eprintln!("Database initialization failed: {}", e);
-                    // Continue without database - commands will handle the missing state
+            if let Some(db) = db.clone() {
+                app.manage(db.clone());
+            }
+            
+            // Initialize storage (for migration purposes)
+            let storage = match LocalStorage::new() {
+                Ok(storage) => {
+                    println!("Local storage initialized successfully");
+                    Some(storage)
                 }
                 Err(e) => {
-                    eprintln!("Failed to receive database initialization result: {}", e);
+                    eprintln!("Failed to initialize local storage: {}", e);
+                    None
                 }
+            };
+            
+            // Initialize goal service with database
+            let goal_service = Arc::new(tokio::sync::Mutex::new(goals::GoalService::new()));
+            if let Some(db) = &db {
+                let mut service = goal_service.blocking_lock();
+                service.set_database(db.clone());
+                // Load existing goals
+                tauri::async_runtime::block_on(async {
+                    if let Err(e) = service.load_from_database().await {
+                        eprintln!("Failed to load goals from database: {}", e);
+                    } else {
+                        println!("Goals loaded from database successfully");
+                    }
+                });
+            }
+            app.manage(goal_service.clone());
+            
+            // Update activity tracker to use database
+            if let Some(db) = &db {
+                let mut tracker = activity_tracker.blocking_lock();
+                tracker.set_database(db.clone());
+            }
+            
+            // Migrate existing data if needed
+            if let (Some(db), Some(storage)) = (db, storage) {
+                tauri::async_runtime::spawn(async move {
+                    let db = db.lock().await;
+                    if let Err(e) = db.import_from_storage(&storage).await {
+                        eprintln!("Failed to migrate data from storage: {}", e);
+                    } else {
+                        println!("Successfully migrated data to SQLite");
+                    }
+                });
             }
             
             // Start activity tracking background task
             let tracker_clone = activity_tracker.clone();
+            let goal_service_clone = goal_service.clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
                 loop {
                     interval.tick().await;
                     let mut tracker = tracker_clone.lock().await;
                     if tracker.is_tracking() {
-                        match tracker.collect_activity().await {
+                        // Get active goal info
+                        let active_goal_info = {
+                            let goal_service = goal_service_clone.lock().await;
+                            goal_service.get_active_goal_info()
+                        };
+                        
+                        match tracker.collect_activity(active_goal_info).await {
                             Ok(activity) => {
-                                println!("Activity collected: {} - {}", 
+                                let goal_msg = if activity.goal_id.is_some() { 
+                                    " [Goal tracked]" 
+                                } else { 
+                                    "" 
+                                };
+                                println!("Activity collected: {} - {}{}", 
                                     activity.app_usage.app_name, 
-                                    activity.app_usage.window_title
+                                    activity.app_usage.window_title,
+                                    goal_msg
                                 );
+                                
+                                // Update goal progress if activity is part of active goal
+                                if activity.goal_id.is_some() {
+                                    let mut goal_service = goal_service_clone.lock().await;
+                                    let _ = goal_service.update_active_goal_progress(
+                                        &activity.app_usage.app_name, 
+                                        (activity.duration_seconds / 60) as u32
+                                    );
+                                }
                             }
                             Err(e) => {
                                 eprintln!("Failed to collect activity: {}", e);

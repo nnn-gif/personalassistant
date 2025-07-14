@@ -1,25 +1,30 @@
 use crate::error::{Result, AppError};
-use crate::models::SavedResearchTask;
+use crate::models::{SavedResearchTask, Goal};
 use std::fs;
 use std::path::PathBuf;
 use dirs::data_dir;
 
 pub struct LocalStorage {
     data_dir: PathBuf,
+    goals_dir: PathBuf,
 }
 
 impl LocalStorage {
     pub fn new() -> Result<Self> {
-        let data_dir = data_dir()
+        let base_dir = data_dir()
             .ok_or_else(|| AppError::Storage("Could not find data directory".to_string()))?
-            .join("personalassistant")
-            .join("research");
+            .join("personalassistant");
+            
+        let data_dir = base_dir.join("research");
+        let goals_dir = base_dir.join("goals");
         
-        // Create directory if it doesn't exist
+        // Create directories if they don't exist
         fs::create_dir_all(&data_dir)
             .map_err(|e| AppError::Storage(format!("Failed to create data directory: {}", e)))?;
+        fs::create_dir_all(&goals_dir)
+            .map_err(|e| AppError::Storage(format!("Failed to create goals directory: {}", e)))?;
         
-        Ok(Self { data_dir })
+        Ok(Self { data_dir, goals_dir })
     }
     
     pub fn save_research(&self, task: &SavedResearchTask) -> Result<()> {
@@ -80,5 +85,33 @@ impl LocalStorage {
         }
         
         Ok(())
+    }
+    
+    // Goals storage methods
+    pub fn save_goals(&self, goals: &Vec<Goal>) -> Result<()> {
+        let file_path = self.goals_dir.join("goals.json");
+        let json = serde_json::to_string_pretty(goals)
+            .map_err(|e| AppError::Storage(format!("Failed to serialize goals: {}", e)))?;
+        
+        fs::write(&file_path, json)
+            .map_err(|e| AppError::Storage(format!("Failed to write goals file: {}", e)))?;
+        
+        Ok(())
+    }
+    
+    pub fn load_goals(&self) -> Result<Vec<Goal>> {
+        let file_path = self.goals_dir.join("goals.json");
+        
+        if !file_path.exists() {
+            return Ok(Vec::new());
+        }
+        
+        let content = fs::read_to_string(&file_path)
+            .map_err(|e| AppError::Storage(format!("Failed to read goals file: {}", e)))?;
+        
+        let goals = serde_json::from_str::<Vec<Goal>>(&content)
+            .map_err(|e| AppError::Storage(format!("Failed to parse goals: {}", e)))?;
+        
+        Ok(goals)
     }
 }

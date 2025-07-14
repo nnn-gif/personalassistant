@@ -1,17 +1,51 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus } from 'lucide-react'
+import { X, Plus, ChevronDown } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
 
 interface CreateGoalModalProps {
   onClose: () => void
   onCreate: (name: string, duration: number, apps: string[]) => void
 }
 
+interface Activity {
+  app_usage: {
+    app_name: string
+  }
+}
+
 export default function CreateGoalModal({ onClose, onCreate }: CreateGoalModalProps) {
   const [name, setName] = useState('')
-  const [duration, setDuration] = useState(60)
   const [apps, setApps] = useState<string[]>([])
   const [newApp, setNewApp] = useState('')
+  const [existingApps, setExistingApps] = useState<string[]>([])
+  const [showDropdown, setShowDropdown] = useState(false)
+
+  useEffect(() => {
+    loadExistingApps()
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.app-dropdown')) {
+        setShowDropdown(false)
+      }
+    }
+
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
+
+  const loadExistingApps = async () => {
+    try {
+      const activities = await invoke<Activity[]>('get_activity_history', { limit: 100 })
+      const uniqueApps = [...new Set(activities.map(a => a.app_usage.app_name))]
+      setExistingApps(uniqueApps.sort())
+    } catch (error) {
+      console.error('Failed to load apps:', error)
+    }
+  }
 
   const addApp = () => {
     if (newApp.trim() && !apps.includes(newApp.trim())) {
@@ -20,13 +54,22 @@ export default function CreateGoalModal({ onClose, onCreate }: CreateGoalModalPr
     }
   }
 
+  const addExistingApp = (app: string) => {
+    if (!apps.includes(app)) {
+      setApps([...apps, app])
+    }
+    setShowDropdown(false)
+    setNewApp('')
+  }
+
   const removeApp = (app: string) => {
     setApps(apps.filter(a => a !== app))
   }
 
   const handleCreate = () => {
-    if (name.trim() && duration > 0 && apps.length > 0) {
-      onCreate(name.trim(), duration, apps)
+    if (name.trim() && apps.length > 0) {
+      // Pass 0 for duration since we're removing it
+      onCreate(name.trim(), 0, apps)
     }
   }
 
@@ -70,36 +113,52 @@ export default function CreateGoalModal({ onClose, onCreate }: CreateGoalModalPr
 
             <div>
               <label className="block text-sm text-gray-400 mb-2">
-                Duration (minutes)
-              </label>
-              <input
-                type="number"
-                value={duration}
-                onChange={(e) => setDuration(parseInt(e.target.value) || 0)}
-                min="1"
-                className="input w-full"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">
                 Allowed Applications
               </label>
-              <div className="flex space-x-2 mb-2">
-                <input
-                  type="text"
-                  value={newApp}
-                  onChange={(e) => setNewApp(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addApp()}
-                  placeholder="e.g., VS Code"
-                  className="input flex-1"
-                />
-                <button
-                  onClick={addApp}
-                  className="btn-secondary"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+              <div className="relative app-dropdown">
+                <div className="flex space-x-2 mb-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={newApp}
+                      onChange={(e) => setNewApp(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && addApp()}
+                      onFocus={() => setShowDropdown(true)}
+                      placeholder="Type or select an app"
+                      className="input w-full pr-8"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowDropdown(!showDropdown)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                    >
+                      <ChevronDown className={`w-4 h-4 transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+                  <button
+                    onClick={addApp}
+                    className="btn-secondary"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {showDropdown && existingApps.length > 0 && (
+                  <div className="absolute z-10 w-full bg-dark-surface border border-dark-border rounded-lg max-h-48 overflow-y-auto">
+                    {existingApps
+                      .filter(app => app.toLowerCase().includes(newApp.toLowerCase()))
+                      .filter(app => !apps.includes(app))
+                      .map(app => (
+                        <button
+                          key={app}
+                          onClick={() => addExistingApp(app)}
+                          className="w-full text-left px-4 py-2 hover:bg-dark-bg transition-colors"
+                        >
+                          {app}
+                        </button>
+                      ))}
+                  </div>
+                )}
               </div>
               
               <div className="flex flex-wrap gap-2">
@@ -130,7 +189,7 @@ export default function CreateGoalModal({ onClose, onCreate }: CreateGoalModalPr
             </button>
             <button
               onClick={handleCreate}
-              disabled={!name.trim() || duration <= 0 || apps.length === 0}
+              disabled={!name.trim() || apps.length === 0}
               className="btn-primary flex-1"
             >
               Create Goal

@@ -1,6 +1,7 @@
 use crate::error::{AppError, Result};
 use crate::models::{
     BrowserAIProgress, ResearchResult, ResearchSubtask, ResearchTask, SearchResult, TaskStatus,
+    SubtaskProgress, PhaseDetails,
 };
 use crate::llm::LlmClient;
 use super::{ScraperEngine, ChromeController};
@@ -60,9 +61,16 @@ impl BrowserAIAgent {
         
         // Step 1: Create research plan
         task.status = TaskStatus::SplittingTasks;
-        if let Err(e) = self.send_progress(&task, &progress_sender).await {
-            println!("Agent: Error sending initial progress: {}", e);
-        }
+        let _ = self.send_detailed_progress(
+            &task,
+            &progress_sender,
+            Some("Analyzing query and creating research plan...".to_string()),
+            Some(PhaseDetails {
+                phase: "Planning".to_string(),
+                details: "Breaking down your query into specific research topics".to_string(),
+                estimated_completion: None,
+            })
+        ).await;
         
         println!("Agent: Creating research plan...");
         let plan = match self.create_research_plan(&query).await {
@@ -83,53 +91,150 @@ impl BrowserAIAgent {
         let subtasks = self.plan_to_subtasks(&plan).await?;
         task.subtasks = subtasks;
         
+        // Send progress with created subtasks
+        let _ = self.send_detailed_progress(
+            &task,
+            &progress_sender,
+            Some(format!("Created {} research tasks", task.subtasks.len())),
+            Some(PhaseDetails {
+                phase: "Planning Complete".to_string(),
+                details: format!("Split research into {} focused queries", task.subtasks.len()),
+                estimated_completion: None,
+            })
+        ).await;
+        
         // Step 2: Execute searches
         task.status = TaskStatus::Searching;
-        self.send_progress(&task, &progress_sender).await?;
+        let _ = self.send_detailed_progress(
+            &task,
+            &progress_sender,
+            Some("Starting web searches...".to_string()),
+            Some(PhaseDetails {
+                phase: "Searching".to_string(),
+                details: "Searching the web for relevant information".to_string(),
+                estimated_completion: None,
+            })
+        ).await;
         
-        for subtask in &mut task.subtasks {
+        let total_subtasks = task.subtasks.len();
+        for i in 0..total_subtasks {
+            let subtask_query = task.subtasks[i].query.clone();
+            
+            // Update progress for current search
+            let _ = self.send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some(format!("Searching: {}", subtask_query)),
+                Some(PhaseDetails {
+                    phase: format!("Search {}/{}", i + 1, total_subtasks),
+                    details: format!("Finding sources for: {}", subtask_query),
+                    estimated_completion: None,
+                })
+            ).await;
+            
             let search_results = if plan.requires_browser {
-                self.search_with_browser(&subtask.query).await?
+                self.search_with_browser(&subtask_query).await?
             } else {
-                self.search_web(&subtask.query).await?
+                self.search_web(&subtask_query).await?
             };
-            subtask.search_results = search_results;
+            
+            // Update the subtask with results
+            task.subtasks[i].search_results = search_results.clone();
+            task.subtasks[i].status = TaskStatus::Searching;
+            
+            // Send progress after each search
+            let _ = self.send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some(format!("Found {} results for: {}", search_results.len(), subtask_query)),
+                None
+            ).await;
         }
         
         // Step 3: Intelligent scraping
         task.status = TaskStatus::Scraping;
-        self.send_progress(&task, &progress_sender).await?;
+        let _ = self.send_detailed_progress(
+            &task,
+            &progress_sender,
+            Some("Starting content extraction...".to_string()),
+            Some(PhaseDetails {
+                phase: "Scraping".to_string(),
+                details: "Extracting and analyzing content from web pages".to_string(),
+                estimated_completion: None,
+            })
+        ).await;
         
         let mut results = Vec::new();
-        for subtask in &task.subtasks {
-            // Prioritize top results
-            let top_results = subtask.search_results.iter()
-                .take(3)
-                .collect::<Vec<_>>();
+        let subtasks_count = task.subtasks.len();
+        
+        for i in 0..subtasks_count {
+            let subtask_id = task.subtasks[i].id;
+            let subtask_query = task.subtasks[i].query.clone();
+            let search_results = task.subtasks[i].search_results.clone();
             
-            for search_result in top_results {
+            // Update subtask status
+            task.subtasks[i].status = TaskStatus::Scraping;
+            
+            let _ = self.send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some(format!("Extracting content for: {}", subtask_query)),
+                None
+            ).await;
+            
+            // Prioritize top results
+            let top_results: Vec<_> = search_results.iter().take(3).collect();
+            
+            for (j, search_result) in top_results.iter().enumerate() {
+                let _ = self.send_detailed_progress(
+                    &task,
+                    &progress_sender,
+                    Some(format!("Scraping: {} ({}/{})", search_result.title, j + 1, top_results.len())),
+                    None
+                ).await;
+                
                 if let Ok(content) = self.scraper.scrape_url(&search_result.url).await {
                     // Extract relevant content using LLM
-                    let extracted = self.extract_relevant_content(&content, &subtask.query).await?;
+                    let extracted = self.extract_relevant_content(&content, &subtask_query).await?;
                     
                     let result = ResearchResult {
                         id: Uuid::new_v4(),
-                        subtask_id: subtask.id,
+                        subtask_id,
                         url: search_result.url.clone(),
                         title: search_result.title.clone(),
                         content: extracted,
                         relevance_score: search_result.relevance_score,
                         scraped_at: Utc::now(),
                     };
-                    results.push(result);
+                    results.push(result.clone());
+                    
+                    // Update task with new result and send progress immediately
+                    task.results = results.clone();
+                    let _ = self.send_detailed_progress(
+                        &task,
+                        &progress_sender,
+                        Some(format!("Found content: {}", result.title)),
+                        None
+                    ).await;
                 }
             }
+            
+            // Mark subtask as completed
+            task.subtasks[i].status = TaskStatus::Completed;
         }
-        task.results = results;
         
         // Step 4: Synthesize results
         task.status = TaskStatus::Analyzing;
-        self.send_progress(&task, &progress_sender).await?;
+        let _ = self.send_detailed_progress(
+            &task,
+            &progress_sender,
+            Some("Analyzing and synthesizing findings...".to_string()),
+            Some(PhaseDetails {
+                phase: "Analysis".to_string(),
+                details: format!("Analyzing {} research findings to create comprehensive conclusion", task.results.len()),
+                estimated_completion: None,
+            })
+        ).await;
         
         let conclusion = self.synthesize_results(&task, &plan).await?;
         task.conclusion = Some(conclusion);
@@ -137,7 +242,16 @@ impl BrowserAIAgent {
         // Complete
         task.status = TaskStatus::Completed;
         task.updated_at = Utc::now();
-        self.send_progress(&task, &progress_sender).await?;
+        let _ = self.send_detailed_progress(
+            &task,
+            &progress_sender,
+            Some("Research completed!".to_string()),
+            Some(PhaseDetails {
+                phase: "Complete".to_string(),
+                details: format!("Found {} results across {} research topics", task.results.len(), task.subtasks.len()),
+                estimated_completion: None,
+            })
+        ).await;
         
         self.active_tasks.insert(task_id, task);
         Ok(task_id)
@@ -412,6 +526,16 @@ impl BrowserAIAgent {
         task: &ResearchTask,
         sender: &mpsc::Sender<BrowserAIProgress>,
     ) -> Result<()> {
+        self.send_detailed_progress(task, sender, None, None).await
+    }
+
+    async fn send_detailed_progress(
+        &self,
+        task: &ResearchTask,
+        sender: &mpsc::Sender<BrowserAIProgress>,
+        current_operation: Option<String>,
+        phase_details: Option<PhaseDetails>,
+    ) -> Result<()> {
         let completed_subtasks = task.subtasks.iter()
             .filter(|s| matches!(s.status, TaskStatus::Completed))
             .count();
@@ -420,8 +544,35 @@ impl BrowserAIAgent {
         let percentage = if total_subtasks > 0 {
             (completed_subtasks as f32 / total_subtasks as f32) * 100.0
         } else {
-            0.0
+            match task.status {
+                TaskStatus::SplittingTasks => 10.0,
+                TaskStatus::Searching => 30.0,
+                TaskStatus::Scraping => 60.0,
+                TaskStatus::Analyzing => 85.0,
+                TaskStatus::Completed => 100.0,
+                _ => 0.0,
+            }
         };
+
+        // Create detailed subtask progress
+        let subtasks_progress: Vec<SubtaskProgress> = task.subtasks.iter()
+            .map(|subtask| {
+                let results: Vec<ResearchResult> = task.results.iter()
+                    .filter(|r| r.subtask_id == subtask.id)
+                    .cloned()
+                    .collect();
+
+                SubtaskProgress {
+                    id: subtask.id,
+                    query: subtask.query.clone(),
+                    status: subtask.status.clone(),
+                    current_operation: None,
+                    search_results_count: subtask.search_results.len(),
+                    scraped_pages_count: results.len(),
+                    results,
+                }
+            })
+            .collect();
         
         let progress = BrowserAIProgress {
             task_id: task.id,
@@ -430,6 +581,10 @@ impl BrowserAIAgent {
             completed_subtasks,
             total_subtasks,
             percentage,
+            current_operation,
+            subtasks_progress,
+            intermediate_results: task.results.clone(),
+            phase_details,
         };
         
         sender.send(progress).await

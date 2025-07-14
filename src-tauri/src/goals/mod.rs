@@ -1,47 +1,98 @@
 use crate::error::{AppError, Result};
 use crate::models::{Goal, GoalSession};
+use crate::database::SqliteDatabase;
 use chrono::Utc;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 pub struct GoalService {
-    goals: HashMap<Uuid, Goal>,
+    db: Option<Arc<Mutex<SqliteDatabase>>>,
     sessions: HashMap<Uuid, Vec<GoalSession>>,
     active_goal_id: Option<Uuid>,
+    // Cache for performance
+    goals_cache: HashMap<Uuid, Goal>,
 }
 
 impl GoalService {
     pub fn new() -> Self {
         Self {
-            goals: HashMap::new(),
+            db: None,
             sessions: HashMap::new(),
             active_goal_id: None,
+            goals_cache: HashMap::new(),
         }
     }
     
-    pub fn create_goal(&mut self, name: String, duration_minutes: u32, allowed_apps: Vec<String>) -> Result<Goal> {
-        let goal = Goal::new(name, duration_minutes, allowed_apps);
-        self.goals.insert(goal.id, goal.clone());
+    pub fn set_database(&mut self, db: Arc<Mutex<SqliteDatabase>>) {
+        self.db = Some(db);
+    }
+    
+    pub async fn load_from_database(&mut self) -> Result<()> {
+        if let Some(db) = &self.db {
+            let db = db.lock().await;
+            let goals = db.get_all_goals().await?;
+            
+            // Update cache and find active goal
+            self.goals_cache.clear();
+            for goal in goals {
+                if goal.is_active {
+                    self.active_goal_id = Some(goal.id);
+                }
+                self.goals_cache.insert(goal.id, goal);
+            }
+        }
+        Ok(())
+    }
+    
+    async fn save_goal(&self, goal: &Goal) -> Result<()> {
+        if let Some(db) = &self.db {
+            let db = db.lock().await;
+            db.save_goal(goal).await?;
+        }
+        Ok(())
+    }
+    
+    pub async fn create_goal(&mut self, name: String, target_duration_minutes: u32, allowed_apps: Vec<String>) -> Result<Goal> {
+        let goal = Goal::new(name, target_duration_minutes, allowed_apps);
         self.sessions.insert(goal.id, Vec::new());
+        
+        // Save to database
+        self.save_goal(&goal).await?;
+        
+        // Update cache
+        self.goals_cache.insert(goal.id, goal.clone());
+        
         Ok(goal)
     }
     
-    pub fn activate_goal(&mut self, goal_id: Uuid) -> Result<()> {
+    pub async fn activate_goal(&mut self, goal_id: Uuid) -> Result<()> {
         // Deactivate any currently active goal
         if let Some(active_id) = self.active_goal_id {
-            if let Some(active_goal) = self.goals.get_mut(&active_id) {
+            if let Some(active_goal) = self.goals_cache.get_mut(&active_id) {
                 active_goal.is_active = false;
                 active_goal.updated_at = Utc::now();
+            }
+            // Save the deactivated goal
+            if let Some(active_goal) = self.goals_cache.get(&active_id) {
+                let goal_to_save = active_goal.clone();
+                self.save_goal(&goal_to_save).await?;
             }
         }
         
         // Activate the requested goal
-        let goal = self.goals.get_mut(&goal_id)
-            .ok_or_else(|| AppError::NotFound(format!("Goal {} not found", goal_id)))?;
-        
-        goal.is_active = true;
-        goal.updated_at = Utc::now();
+        if let Some(goal) = self.goals_cache.get_mut(&goal_id) {
+            goal.is_active = true;
+            goal.updated_at = Utc::now();
+        } else {
+            return Err(AppError::NotFound(format!("Goal {} not found", goal_id)));
+        }
         self.active_goal_id = Some(goal_id);
+        
+        // Save to database
+        let goal = self.goals_cache.get(&goal_id).unwrap().clone();
+        self.save_goal(&goal).await?;
         
         // Start a new session
         let session = GoalSession {
@@ -59,53 +110,74 @@ impl GoalService {
         Ok(())
     }
     
-    pub fn deactivate_goal(&mut self, goal_id: Uuid) -> Result<()> {
-        let goal = self.goals.get_mut(&goal_id)
-            .ok_or_else(|| AppError::NotFound(format!("Goal {} not found", goal_id)))?;
+    pub async fn deactivate_goal(&mut self, goal_id: Uuid) -> Result<()> {
+        let mut additional_minutes = 0u32;
         
-        goal.is_active = false;
-        goal.updated_at = Utc::now();
-        
-        // End the current session
+        // End the current session and calculate additional minutes
         if let Some(sessions) = self.sessions.get_mut(&goal_id) {
             if let Some(session) = sessions.last_mut() {
                 if session.end_time.is_none() {
                     session.end_time = Some(Utc::now());
                     let duration = session.end_time.unwrap().signed_duration_since(session.start_time);
                     session.duration_minutes = (duration.num_seconds() / 60) as u32;
-                    
-                    // Update goal progress
-                    goal.update_progress(session.duration_minutes);
+                    additional_minutes = session.duration_minutes;
                 }
             }
+        }
+        
+        // Update the goal
+        if let Some(goal) = self.goals_cache.get_mut(&goal_id) {
+            goal.is_active = false;
+            goal.updated_at = Utc::now();
+            if additional_minutes > 0 {
+                goal.update_progress(additional_minutes);
+            }
+        } else {
+            return Err(AppError::NotFound(format!("Goal {} not found", goal_id)));
         }
         
         if self.active_goal_id == Some(goal_id) {
             self.active_goal_id = None;
         }
         
+        // Save to database
+        let goal = self.goals_cache.get(&goal_id).unwrap().clone();
+        self.save_goal(&goal).await?;
+        
         Ok(())
     }
     
     pub fn get_goal(&self, goal_id: &Uuid) -> Option<&Goal> {
-        self.goals.get(goal_id)
+        self.goals_cache.get(goal_id)
     }
     
     pub fn get_all_goals(&self) -> Vec<&Goal> {
-        self.goals.values().collect()
+        self.goals_cache.values().collect()
     }
     
     pub fn get_active_goal(&self) -> Option<&Goal> {
-        self.active_goal_id.and_then(|id| self.goals.get(&id))
+        self.active_goal_id.and_then(|id| self.goals_cache.get(&id))
     }
     
-    pub fn update_active_goal_progress(&mut self, app_name: &str, minutes: u32) -> Result<()> {
+    pub fn get_active_goal_info(&self) -> Option<(Uuid, Vec<String>)> {
+        self.active_goal_id
+            .and_then(|id| self.goals_cache.get(&id))
+            .map(|goal| (goal.id, goal.allowed_apps.clone()))
+    }
+    
+    pub async fn update_active_goal_progress(&mut self, app_name: &str, minutes: u32) -> Result<()> {
         if let Some(goal_id) = self.active_goal_id {
-            let goal = self.goals.get_mut(&goal_id)
-                .ok_or_else(|| AppError::Goal("Active goal not found".into()))?;
+            let should_update = self.goals_cache.get(&goal_id)
+                .map(|goal| goal.is_app_allowed(app_name))
+                .unwrap_or(false);
             
-            if goal.is_app_allowed(app_name) {
-                goal.update_progress(minutes);
+            if should_update {
+                if let Some(goal) = self.goals_cache.get_mut(&goal_id) {
+                    goal.update_progress(minutes);
+                }
+                // Save to database
+                let goal = self.goals_cache.get(&goal_id).unwrap();
+                self.save_goal(goal).await?;
             }
         }
         

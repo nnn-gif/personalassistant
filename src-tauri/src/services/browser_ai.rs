@@ -1,7 +1,7 @@
 use crate::browser_ai::BrowserAIAgent;
 use crate::error::Result;
 use crate::models::{ResearchTask, SavedResearchTask};
-use crate::storage::LocalStorage;
+use crate::database::SqliteDatabase;
 use chrono::Utc;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -55,7 +55,7 @@ pub async fn get_research_status(
 #[tauri::command]
 pub async fn save_research(
     agent: State<'_, Arc<Mutex<BrowserAIAgent>>>,
-    storage: State<'_, Arc<Mutex<LocalStorage>>>,
+    db: State<'_, Arc<Mutex<SqliteDatabase>>>,
     task_id: Uuid,
     tags: Vec<String>,
     notes: Option<String>,
@@ -82,9 +82,9 @@ pub async fn save_research(
     
     println!("Saving research task with tags: {:?}", tags);
     
-    // Save to local storage
-    let storage = storage.lock().await;
-    match storage.save_research(&saved_task) {
+    // Save to database
+    let db = db.lock().await;
+    match db.save_research(&saved_task).await {
         Ok(_) => {
             println!("Research saved successfully with id: {}", saved_task.id);
             Ok(saved_task)
@@ -98,14 +98,19 @@ pub async fn save_research(
 
 #[tauri::command]
 pub async fn get_saved_research(
-    storage: State<'_, Arc<Mutex<LocalStorage>>>,
+    db: State<'_, Arc<Mutex<SqliteDatabase>>>,
     search_query: Option<String>,
 ) -> Result<Vec<SavedResearchTask>> {
     println!("get_saved_research called with query: {:?}", search_query);
     
-    let storage = storage.lock().await;
+    let db = db.lock().await;
     
-    let result = storage.get_saved_research(search_query.as_deref());
+    let result = if let Some(_query) = search_query {
+        // TODO: Implement search in SQLite
+        db.get_all_research().await
+    } else {
+        db.get_all_research().await
+    };
     
     match &result {
         Ok(tasks) => println!("Found {} saved research tasks", tasks.len()),
@@ -117,9 +122,9 @@ pub async fn get_saved_research(
 
 #[tauri::command]
 pub async fn delete_saved_research(
-    storage: State<'_, Arc<Mutex<LocalStorage>>>,
+    db: State<'_, Arc<Mutex<SqliteDatabase>>>,
     id: Uuid,
 ) -> Result<()> {
-    let storage = storage.lock().await;
-    storage.delete_research(&id)
+    let db = db.lock().await;
+    db.delete_research(&id).await
 }

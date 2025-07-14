@@ -6,10 +6,9 @@ use uuid::Uuid;
 pub struct Goal {
     pub id: Uuid,
     pub name: String,
-    pub duration_minutes: u32,
+    pub target_duration_minutes: u32,
     pub allowed_apps: Vec<String>,
-    pub progress_percentage: f32,
-    pub time_spent_minutes: u32,
+    pub current_duration_minutes: u32,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -25,15 +24,14 @@ pub struct GoalSession {
 }
 
 impl Goal {
-    pub fn new(name: String, duration_minutes: u32, allowed_apps: Vec<String>) -> Self {
+    pub fn new(name: String, target_duration_minutes: u32, allowed_apps: Vec<String>) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             name,
-            duration_minutes,
+            target_duration_minutes,
             allowed_apps,
-            progress_percentage: 0.0,
-            time_spent_minutes: 0,
+            current_duration_minutes: 0,
             is_active: false,
             created_at: now,
             updated_at: now,
@@ -41,10 +39,16 @@ impl Goal {
     }
     
     pub fn update_progress(&mut self, additional_minutes: u32) {
-        self.time_spent_minutes += additional_minutes;
-        self.progress_percentage = 
-            ((self.time_spent_minutes as f32 / self.duration_minutes as f32) * 100.0).min(100.0);
+        self.current_duration_minutes += additional_minutes;
         self.updated_at = Utc::now();
+    }
+    
+    pub fn progress_percentage(&self) -> f32 {
+        if self.target_duration_minutes > 0 {
+            ((self.current_duration_minutes as f32 / self.target_duration_minutes as f32) * 100.0).min(100.0)
+        } else {
+            0.0
+        }
     }
     
     pub fn is_app_allowed(&self, app_name: &str) -> bool {
@@ -53,6 +57,6 @@ impl Goal {
     }
     
     pub fn is_completed(&self) -> bool {
-        self.progress_percentage >= 100.0
+        self.progress_percentage() >= 100.0
     }
 }

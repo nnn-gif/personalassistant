@@ -13,6 +13,36 @@ interface ResearchProgress {
   completed_subtasks: number
   total_subtasks: number
   percentage: number
+  current_operation?: string
+  subtasks_progress: SubtaskProgress[]
+  intermediate_results: ResearchResult[]
+  phase_details?: PhaseDetails
+}
+
+interface SubtaskProgress {
+  id: string
+  query: string
+  status: string
+  current_operation?: string
+  search_results_count: number
+  scraped_pages_count: number
+  results: ResearchResult[]
+}
+
+interface ResearchResult {
+  id: string
+  subtask_id: string
+  url: string
+  title: string
+  content: string
+  relevance_score: number
+  scraped_at: string
+}
+
+interface PhaseDetails {
+  phase: string
+  details: string
+  estimated_completion?: string
 }
 
 export default function ResearchAssistant() {
@@ -119,24 +149,96 @@ export default function ResearchAssistant() {
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mt-6"
+                className="mt-6 space-y-4"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-gray-400">
-                    {progress.current_subtask || 'Preparing research...'}
-                  </span>
-                  <span className="text-sm text-gray-400">
-                    {progress.completed_subtasks}/{progress.total_subtasks} tasks
-                  </span>
+                {/* Main Progress */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-300 font-medium">
+                      {progress.current_operation || getStatusMessage(progress.status)}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                      {Math.round(progress.percentage)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-dark-bg rounded-full h-2">
+                    <motion.div
+                      className="bg-primary h-2 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress.percentage}%` }}
+                      transition={{ duration: 0.3 }}
+                    />
+                  </div>
+                  {progress.phase_details && (
+                    <p className="text-xs text-gray-500 mt-1">{progress.phase_details.details}</p>
+                  )}
                 </div>
-                <div className="w-full bg-dark-bg rounded-full h-2">
-                  <motion.div
-                    className="bg-primary h-2 rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progress.percentage}%` }}
-                    transition={{ duration: 0.3 }}
-                  />
-                </div>
+
+                {/* Subtasks Progress */}
+                {progress.subtasks_progress.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium text-gray-300">Research Tasks:</h4>
+                    {progress.subtasks_progress.map((subtask) => (
+                      <motion.div
+                        key={subtask.id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="bg-dark-bg rounded-lg p-3 border border-gray-700"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-gray-300 truncate flex-1 mr-2">
+                            {subtask.query}
+                          </span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(subtask.status)}`}>
+                            {subtask.status}
+                          </span>
+                        </div>
+                        {subtask.current_operation && (
+                          <p className="text-xs text-gray-400 mb-2">{subtask.current_operation}</p>
+                        )}
+                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                          {subtask.search_results_count > 0 && (
+                            <span>{subtask.search_results_count} search results</span>
+                          )}
+                          {subtask.scraped_pages_count > 0 && (
+                            <span>{subtask.scraped_pages_count} pages scraped</span>
+                          )}
+                          {subtask.results.length > 0 && (
+                            <span className="text-green-400">{subtask.results.length} findings</span>
+                          )}
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Intermediate Results */}
+                {progress.intermediate_results.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-gray-300">Latest Findings:</h4>
+                    <div className="max-h-40 overflow-y-auto space-y-2">
+                      {progress.intermediate_results.slice(-3).map((result) => (
+                        <motion.div
+                          key={result.id}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="bg-dark-bg rounded-lg p-2 border border-gray-700"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h5 className="text-sm font-medium text-gray-200 truncate">{result.title}</h5>
+                              <p className="text-xs text-gray-400 truncate">{result.url}</p>
+                              <p className="text-xs text-gray-300 mt-1 line-clamp-2">{result.content.slice(0, 120)}...</p>
+                            </div>
+                            <span className="text-xs text-green-400 ml-2">
+                              {Math.round(result.relevance_score * 100)}%
+                            </span>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
           </div>
@@ -148,4 +250,38 @@ export default function ResearchAssistant() {
       )}
     </div>
   )
+}
+
+function getStatusMessage(status: string): string {
+  switch (status) {
+    case 'SplittingTasks':
+      return 'Creating research plan...'
+    case 'Searching':
+      return 'Searching the web...'
+    case 'Scraping':
+      return 'Extracting content...'
+    case 'Analyzing':
+      return 'Analyzing findings...'
+    case 'Completed':
+      return 'Research completed!'
+    default:
+      return 'Preparing research...'
+  }
+}
+
+function getStatusColor(status: string): string {
+  switch (status) {
+    case 'Completed':
+      return 'bg-green-600 text-green-100'
+    case 'Searching':
+    case 'Scraping':
+    case 'Analyzing':
+      return 'bg-blue-600 text-blue-100'
+    case 'SplittingTasks':
+      return 'bg-yellow-600 text-yellow-100'
+    case 'Pending':
+      return 'bg-gray-600 text-gray-100'
+    default:
+      return 'bg-gray-600 text-gray-100'
+  }
 }

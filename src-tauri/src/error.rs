@@ -51,8 +51,8 @@ pub enum AppError {
     Generic(#[from] anyhow::Error),
 }
 
-impl From<surrealdb::Error> for AppError {
-    fn from(err: surrealdb::Error) -> Self {
+impl From<sqlx::Error> for AppError {
+    fn from(err: sqlx::Error) -> Self {
         AppError::Database(err.to_string())
     }
 }

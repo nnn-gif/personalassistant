@@ -26,6 +26,7 @@ pub struct AudioRecording {
     pub file_size_bytes: u64,
     pub sample_rate: u32,
     pub channels: u16,
+    pub transcription: Option<String>,
 }
 
 struct ActiveRecording {
@@ -88,6 +89,7 @@ impl SimpleAudioRecorder {
                                 file_size_bytes: metadata.len(),
                                 sample_rate: 48000, // Default, would need to read from file
                                 channels: 2, // Default
+                                transcription: None, // Will be loaded from database if available
                             });
                         }
                     }
@@ -296,6 +298,7 @@ impl SimpleAudioRecorder {
             file_size_bytes: metadata.len(),
             sample_rate: active_recording.sample_rate,
             channels: active_recording.channels,
+            transcription: None,
         };
         
         // Store the recording
@@ -326,6 +329,19 @@ impl SimpleAudioRecorder {
         
         // Remove from the list
         recordings.remove(index);
+        
+        Ok(())
+    }
+    
+    pub fn update_transcription(&self, recording_id: &str, transcription: String) -> Result<()> {
+        let mut recordings = self.recordings.lock().unwrap();
+        
+        // Find the recording
+        let recording = recordings.iter_mut().find(|r| r.id == recording_id)
+            .ok_or_else(|| AppError::Audio(format!("Recording {} not found", recording_id)))?;
+        
+        // Update the transcription
+        recording.transcription = Some(transcription);
         
         Ok(())
     }

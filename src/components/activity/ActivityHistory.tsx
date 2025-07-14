@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
-import { Clock, Monitor } from 'lucide-react'
+import { Clock, Monitor, Target } from 'lucide-react'
 
 interface Activity {
   id: string
@@ -13,6 +13,7 @@ interface Activity {
     category: string
     is_productive: boolean
   }
+  goal_id?: string
 }
 
 export default function ActivityHistory() {
@@ -67,7 +68,12 @@ export default function ActivityHistory() {
               </div>
               
               <div className="flex-1 min-w-0">
-                <p className="font-medium">{activity.app_usage.app_name}</p>
+                <div className="flex items-center space-x-2">
+                  <p className="font-medium">{activity.app_usage.app_name}</p>
+                  {activity.goal_id && (
+                    <Target className="w-3 h-3 text-success" title="Goal tracked" />
+                  )}
+                </div>
                 <p className="text-sm text-gray-400 truncate" title={activity.app_usage.window_title}>
                   {activity.app_usage.window_title}
                 </p>

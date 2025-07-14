@@ -8,12 +8,12 @@ import GoalProgress from './goals/GoalProgress'
 interface Goal {
   id: string
   name: string
-  duration_minutes: number
+  target_duration_minutes: number
   allowed_apps: string[]
-  progress_percentage: number
-  time_spent_minutes: number
+  current_duration_minutes: number
   is_active: boolean
   created_at: string
+  updated_at: string
 }
 
 export default function GoalsManager() {
@@ -50,7 +50,7 @@ export default function GoalsManager() {
     try {
       await invoke('create_goal', {
         name,
-        durationMinutes: duration,
+        targetDurationMinutes: duration,
         allowedApps: apps
       })
       setShowCreateModal(false)
@@ -87,9 +87,16 @@ export default function GoalsManager() {
           >
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-xl font-semibold">{goal.name}</h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-xl font-semibold">{goal.name}</h3>
+                  {goal.is_active && (
+                    <span className="text-xs bg-success/20 text-success px-2 py-1 rounded">
+                      ACTIVE
+                    </span>
+                  )}
+                </div>
                 <p className="text-gray-400 text-sm mt-1">
-                  {goal.time_spent_minutes} / {goal.duration_minutes} minutes
+                  Active for {goal.current_duration_minutes} minutes
                 </p>
               </div>
               <button
@@ -101,14 +108,17 @@ export default function GoalsManager() {
                 }`}
               >
                 {goal.is_active ? (
-                  <Pause className="w-5 h-5" />
+                  <>
+                    <Pause className="w-5 h-5" />
+                    <span className="sr-only">Active</span>
+                  </>
                 ) : (
                   <Play className="w-5 h-5" />
                 )}
               </button>
             </div>
 
-            <GoalProgress progress={goal.progress_percentage} />
+            {/* Remove progress bar since we don't have duration-based progress anymore */}
 
             <div className="mt-4">
               <p className="text-sm text-gray-400 mb-2">Allowed Apps:</p>

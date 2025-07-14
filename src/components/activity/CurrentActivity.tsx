@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Monitor, Folder, Globe, Terminal } from 'lucide-react'
+import { Monitor, Folder, Globe, Terminal, Target } from 'lucide-react'
 
 interface CurrentActivityProps {
   activity: any
@@ -65,6 +65,17 @@ export default function CurrentActivity({ activity }: CurrentActivityProps) {
                     </span>
                   )}
                 </span>
+              </motion.div>
+            )}
+            
+            {activity.goal_id && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-3 flex items-center space-x-2 text-success"
+              >
+                <Target className="w-4 h-4" />
+                <span className="text-sm">Activity tracked for goal</span>
               </motion.div>
             )}
           </div>

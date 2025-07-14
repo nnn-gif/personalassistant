@@ -16,6 +16,28 @@ interface Recording {
   duration_seconds: number
   file_path: string
   transcription?: string
+  transcription_result?: {
+    text: string
+    segments: Array<{
+      start_time: number
+      end_time: number
+      text: string
+      speaker?: string
+    }>
+    language?: string
+    duration_seconds: number
+  }
+  meeting_summary?: {
+    key_topics: string[]
+    action_items: Array<{
+      description: string
+      assignee?: string
+      due_date?: string
+    }>
+    decisions: string[]
+    next_steps: string[]
+    participants: string[]
+  }
   meeting_info?: {
     app_name: string
     meeting_title?: string
@@ -178,25 +200,47 @@ export default function AudioRecorder() {
   }
 
   const transcribeRecording = async (recording: Recording) => {
+    // Check if already transcribed
+    if (recording.transcription || recording.transcription_result) {
+      console.log('Recording already transcribed, skipping...')
+      return
+    }
+    
     setTranscribing(recording.id)
     try {
-      const result = await invoke('transcribe_recording', {
+      const result = await invoke<string>('transcribe_recording', {
         recordingId: recording.id,
         recordingPath: recording.file_path
       })
       
+      // Try to parse as JSON first, fallback to treating as plain text
+      let transcriptionResult
+      try {
+        transcriptionResult = JSON.parse(result)
+      } catch {
+        // If not JSON, treat as plain text transcription
+        transcriptionResult = { text: result }
+      }
+      
+      console.log('Transcription result:', transcriptionResult)
+      
       // Generate summary
-      const transcriptionResult = result as any
       if (transcriptionResult?.text) {
-        const summary = await invoke('generate_meeting_summary', {
-          transcription: transcriptionResult.text
-        })
-        console.log('Meeting summary:', summary)
+        try {
+          const summaryResult = await invoke<string>('generate_meeting_summary', {
+            transcription: transcriptionResult.text
+          })
+          const summary = JSON.parse(summaryResult)
+          console.log('Meeting summary:', summary)
+        } catch (summaryError) {
+          console.error('Failed to generate summary:', summaryError)
+        }
       }
       
       await loadRecordings()
     } catch (error) {
       console.error('Failed to transcribe:', error)
+      alert(`Failed to transcribe recording: ${error}`)
     } finally {
       setTranscribing(null)
     }
@@ -290,6 +334,12 @@ export default function AudioRecorder() {
     if (bytes < 1024) return bytes + ' B'
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  }
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
   return (
@@ -420,12 +470,104 @@ export default function AudioRecorder() {
                       <p>Date: {new Date(recording.started_at).toLocaleString()}</p>
                     </div>
                     
-                    {recording.transcription && (
-                      <div className="mt-3 p-3 bg-dark-card rounded">
-                        <p className="text-sm font-medium mb-1">Transcription:</p>
-                        <p className="text-sm text-gray-300 line-clamp-3">
-                          {recording.transcription}
-                        </p>
+                    {(recording.transcription || recording.transcription_result) && (
+                      <div className="mt-3 space-y-3">
+                        {/* Transcription Text */}
+                        <div className="p-3 bg-dark-card rounded">
+                          <p className="text-sm font-medium mb-2 flex items-center justify-between">
+                            <span>Transcription</span>
+                            {recording.transcription_result?.language && (
+                              <span className="text-xs text-gray-400 bg-gray-700 px-2 py-1 rounded">
+                                {recording.transcription_result.language.toUpperCase()}
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-sm text-gray-300">
+                            {recording.transcription_result?.text || 
+                             (recording.transcription && (() => {
+                               try {
+                                 const parsed = JSON.parse(recording.transcription)
+                                 return parsed.text || recording.transcription
+                               } catch {
+                                 return recording.transcription
+                               }
+                             })()) || 
+                             'No transcription available'}
+                          </p>
+                        </div>
+                        
+                        {/* Segments */}
+                        {recording.transcription_result?.segments && recording.transcription_result.segments.length > 0 && (
+                          <div className="p-3 bg-dark-card rounded">
+                            <p className="text-sm font-medium mb-2">Transcript Timeline</p>
+                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                              {recording.transcription_result.segments.slice(0, 5).map((segment, idx) => (
+                                <div key={idx} className="text-xs text-gray-400 border-l-2 border-primary/30 pl-2">
+                                  <span className="text-primary font-mono">
+                                    {formatTime(segment.start_time)} - {formatTime(segment.end_time)}
+                                  </span>
+                                  <span className="ml-2 text-gray-300">{segment.text}</span>
+                                </div>
+                              ))}
+                              {recording.transcription_result.segments.length > 5 && (
+                                <p className="text-xs text-gray-500 pl-2">
+                                  ... and {recording.transcription_result.segments.length - 5} more segments
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Meeting Summary */}
+                        {recording.meeting_summary && (
+                          <div className="p-3 bg-primary/10 rounded border border-primary/20">
+                            <p className="text-sm font-medium mb-2 text-primary">Meeting Summary</p>
+                            
+                            {recording.meeting_summary.key_topics.length > 0 && (
+                              <div className="mb-2">
+                                <p className="text-xs font-medium text-gray-400 mb-1">Key Topics:</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {recording.meeting_summary.key_topics.map((topic, idx) => (
+                                    <span key={idx} className="text-xs bg-primary/20 text-primary px-2 py-1 rounded">
+                                      {topic}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {recording.meeting_summary.action_items.length > 0 && (
+                              <div className="mb-2">
+                                <p className="text-xs font-medium text-gray-400 mb-1">Action Items:</p>
+                                <ul className="text-xs text-gray-300 space-y-1">
+                                  {recording.meeting_summary.action_items.map((item, idx) => (
+                                    <li key={idx} className="flex items-start space-x-2">
+                                      <span className="text-primary">•</span>
+                                      <span>
+                                        {item.description}
+                                        {item.assignee && <span className="text-gray-400"> ({item.assignee})</span>}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            
+                            {recording.meeting_summary.decisions.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-gray-400 mb-1">Decisions:</p>
+                                <ul className="text-xs text-gray-300 space-y-1">
+                                  {recording.meeting_summary.decisions.map((decision, idx) => (
+                                    <li key={idx} className="flex items-start space-x-2">
+                                      <span className="text-primary">•</span>
+                                      <span>{decision}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                     
@@ -460,12 +602,21 @@ export default function AudioRecorder() {
                     
                     {transcribing === recording.id ? (
                       <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                    ) : !recording.transcription ? (
+                    ) : !recording.transcription && !recording.transcription_result ? (
                       <button
                         onClick={() => transcribeRecording(recording)}
                         className="btn-secondary btn-sm"
                       >
                         Transcribe
+                      </button>
+                    ) : (recording.transcription || recording.transcription_result) ? (
+                      <button
+                        onClick={() => transcribeRecording(recording)}
+                        className="btn-secondary btn-sm opacity-50 cursor-not-allowed"
+                        disabled
+                        title="Already transcribed"
+                      >
+                        Transcribed ✓
                       </button>
                     ) : null}
                     
