@@ -1,4 +1,4 @@
-use crate::error::{AppError, Result};
+use crate::error::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 

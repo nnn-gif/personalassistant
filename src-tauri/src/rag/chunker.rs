@@ -1,4 +1,4 @@
-use crate::error::{AppError, Result};
+use crate::error::Result;
 
 pub struct TextChunker {
     chunk_size: usize,

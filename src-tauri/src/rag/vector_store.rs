@@ -1,5 +1,5 @@
 use crate::database::SqliteDatabase;
-use crate::error::{AppError, Result};
+use crate::error::Result;
 use crate::rag::{Document, DocumentChunk, SearchResult};
 use std::collections::HashMap;
 use std::sync::Arc;

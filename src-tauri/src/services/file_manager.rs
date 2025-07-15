@@ -1,4 +1,3 @@
-use crate::error::Result;
 use mime_guess::MimeGuess;
 use std::path::Path;
 use std::sync::Arc;

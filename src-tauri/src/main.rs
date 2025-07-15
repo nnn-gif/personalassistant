@@ -16,7 +16,6 @@ mod services;
 mod storage;
 
 use database::SqliteDatabase;
-use error::AppError;
 use std::sync::Arc;
 use storage::LocalStorage;
 use tauri::{generate_context, generate_handler, Manager};

@@ -1,7 +1,4 @@
-use crate::error::Result;
 use crate::rag::EmbeddingModel;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[tauri::command]
 pub async fn test_embeddings(text: String) -> std::result::Result<TestEmbeddingResponse, String> {

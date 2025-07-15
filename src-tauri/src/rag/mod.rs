@@ -15,10 +15,8 @@ pub use retriever::DocumentRetriever;
 pub use vector_store::VectorStore;
 
 use crate::database::SqliteDatabase;
-use crate::error::{AppError, Result};
-use crate::models::Goal;
+use crate::error::Result;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;

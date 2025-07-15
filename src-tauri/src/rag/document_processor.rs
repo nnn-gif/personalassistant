@@ -1,7 +1,6 @@
 use crate::error::{AppError, Result};
 use mime_guess::{mime, MimeGuess};
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
