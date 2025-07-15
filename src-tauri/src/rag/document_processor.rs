@@ -22,7 +22,7 @@ impl DocumentProcessor {
         let path = Path::new(file_path);
 
         if !path.exists() {
-            return Err(AppError::NotFound(format!("File not found: {}", file_path)));
+            return Err(AppError::NotFound(format!("File not found: {file_path}")));
         }
 
         let file_name = path
@@ -46,7 +46,7 @@ impl DocumentProcessor {
                         // Try to read as text
                         self.process_text_file(path)
                             .await
-                            .unwrap_or_else(|_| format!("Binary file: {}", file_name))
+                            .unwrap_or_else(|_| format!("Binary file: {file_name}"))
                     }
                 }
             }
@@ -54,7 +54,7 @@ impl DocumentProcessor {
                 // Try to read as text, fallback to file info
                 self.process_text_file(path)
                     .await
-                    .unwrap_or_else(|_| format!("Unsupported file type: {}", file_name))
+                    .unwrap_or_else(|_| format!("Unsupported file type: {file_name}"))
             }
         };
 
@@ -80,21 +80,21 @@ impl DocumentProcessor {
 
     async fn process_text_file(&self, path: &Path) -> Result<String> {
         fs::read_to_string(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading text file: {}", e)))
+            .map_err(|e| AppError::ProcessingError(format!("Error reading text file: {e}")))
     }
 
     async fn process_pdf_file(&self, path: &Path) -> Result<String> {
         use lopdf::Document;
 
         let doc = Document::load(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error loading PDF: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error loading PDF: {e}")))?;
 
         let mut text = String::new();
 
         // Extract text from each page
         for page_num in 1..=doc.get_pages().len() {
             if let Ok(page_text) = doc.extract_text(&[page_num as u32]) {
-                println!("Extracted text from page {}: {}", page_num, page_text);
+                println!("Extracted text from page {page_num}: {page_text}");
                 text.push_str(&page_text);
                 text.push('\n');
             }
@@ -115,19 +115,19 @@ impl DocumentProcessor {
 
         // Try to extract as ZIP and read document.xml
         let file = std::fs::File::open(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error opening DOCX file: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error opening DOCX file: {e}")))?;
 
         let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading DOCX archive: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading DOCX archive: {e}")))?;
 
         // Try to read document.xml
         let mut document_xml = archive
             .by_name("word/document.xml")
-            .map_err(|e| AppError::ProcessingError(format!("Error reading document.xml: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading document.xml: {e}")))?;
 
         let mut xml_content = String::new();
         std::io::Read::read_to_string(&mut document_xml, &mut xml_content)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading XML content: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading XML content: {e}")))?;
 
         // Simple text extraction from XML (remove tags)
         let text = self.extract_text_from_xml(&xml_content);

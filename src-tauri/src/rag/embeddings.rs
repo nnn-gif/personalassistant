@@ -26,17 +26,16 @@ impl EmbeddingModel {
         let ollama_url = "http://localhost:11434".to_string();
 
         // Test connection to Ollama
-        let test_url = format!("{}/api/tags", ollama_url);
+        let test_url = format!("{ollama_url}/api/tags");
         match client.get(&test_url).send().await {
             Ok(response) => {
                 if !response.status().is_success() {
-                    eprintln!("Warning: Ollama may not be running at {}", ollama_url);
+                    eprintln!("Warning: Ollama may not be running at {ollama_url}");
                 }
             }
             Err(_) => {
                 eprintln!(
-                    "Warning: Cannot connect to Ollama at {}. Make sure Ollama is running.",
-                    ollama_url
+                    "Warning: Cannot connect to Ollama at {ollama_url}. Make sure Ollama is running."
                 );
             }
         }
@@ -85,7 +84,7 @@ impl EmbeddingModel {
                             }
                         }
                         Err(e) => {
-                            eprintln!("Failed to parse Ollama embedding response: {}", e);
+                            eprintln!("Failed to parse Ollama embedding response: {e}");
                             Ok(self.create_fallback_embedding(truncated_text))
                         }
                     }
@@ -98,7 +97,7 @@ impl EmbeddingModel {
                 }
             }
             Err(e) => {
-                eprintln!("Failed to connect to Ollama for embeddings: {}", e);
+                eprintln!("Failed to connect to Ollama for embeddings: {e}");
                 Ok(self.create_fallback_embedding(truncated_text))
             }
         }
