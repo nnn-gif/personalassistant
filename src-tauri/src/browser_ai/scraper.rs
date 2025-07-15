@@ -23,11 +23,6 @@ impl ScraperEngine {
         Ok(content)
     }
     
-    async fn scrape_with_playwright(&self, url: &str) -> Result<String> {
-        // Playwright API is not fully compatible, using reqwest instead
-        self.scrape_url(url).await
-    }
-    
     fn extract_content(&self, document: &Html) -> String {
         // Try to find main content areas
         let selectors = vec![

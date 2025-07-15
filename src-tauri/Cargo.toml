@@ -26,7 +26,6 @@ thiserror = "2"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 scraper = "0.21"
 genai = "0.3.5"
-playwright = "0.0.20"
 regex = "1"
 url = "2"
 urlencoding = "2"
@@ -44,13 +43,13 @@ byteorder = "1.5"
 rubato = "0.14"
 ringbuf = "0.3"
 crossbeam-channel = "0.5"
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "uuid"] }
 # Vector database
 qdrant-client = "1.11"
 # Document processing
 lopdf = "0.30"
 pdf-extract = "0.7"
-zip = "0.6"
+zip = "2.1"
 walkdir = "2.4"
 mime_guess = "2.0"
 # Simplified approach - use system tools and enhanced Ollama
