@@ -58,11 +58,11 @@ impl AudioTranscriber {
         for method in methods {
             match self.try_transcription_method(audio_path, &method).await {
                 Ok(result) => {
-                    println!("Successfully transcribed with {:?}", method);
+                    println!("Successfully transcribed with {method:?}");
                     return Ok(result);
                 }
                 Err(e) => {
-                    println!("Failed to transcribe with {:?}: {}", method, e);
+                    println!("Failed to transcribe with {method:?}: {e}");
                     last_error = Some(e);
                 }
             }
@@ -108,8 +108,7 @@ impl AudioTranscriber {
             }
             Err(e) => {
                 println!(
-                    "Available transcription methods failed: {}, falling back to Ollama",
-                    e
+                    "Available transcription methods failed: {e}, falling back to Ollama"
                 );
             }
         }
@@ -158,7 +157,7 @@ impl AudioTranscriber {
     async fn analyze_audio_file(&self, audio_path: &Path) -> Result<String> {
         // Read basic audio properties
         let mut reader = hound::WavReader::open(audio_path)
-            .map_err(|e| AppError::Audio(format!("Failed to open audio file: {}", e)))?;
+            .map_err(|e| AppError::Audio(format!("Failed to open audio file: {e}")))?;
 
         let spec = reader.spec();
         let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap_or(0)).collect();
@@ -274,7 +273,7 @@ impl AudioTranscriber {
                 .arg("Testing speech recognition")
                 .output()
                 .map_err(|e| {
-                    AppError::Audio(format!("Failed to test speech recognition: {}", e))
+                    AppError::Audio(format!("Failed to test speech recognition: {e}"))
                 })?;
 
             if output.status.success() {
@@ -302,7 +301,7 @@ impl AudioTranscriber {
         // Try to read basic audio file info
         use std::fs;
         let metadata = fs::metadata(audio_path)
-            .map_err(|e| AppError::Audio(format!("Failed to read audio file metadata: {}", e)))?;
+            .map_err(|e| AppError::Audio(format!("Failed to read audio file metadata: {e}")))?;
 
         // For WAV files, try to estimate duration (very basic)
         let file_size = metadata.len();
@@ -343,7 +342,7 @@ impl AudioTranscriber {
                     text: if sentence.ends_with('.') {
                         sentence.to_string()
                     } else {
-                        format!("{}.", sentence)
+                        format!("{sentence}.")
                     },
                     speaker: None,
                 }
@@ -370,7 +369,7 @@ impl AudioTranscriber {
 
         // Read audio file
         let mut reader = WavReader::open(audio_path)
-            .map_err(|e| AppError::Audio(format!("Failed to open audio file: {}", e)))?;
+            .map_err(|e| AppError::Audio(format!("Failed to open audio file: {e}")))?;
 
         let spec = reader.spec();
 
@@ -379,13 +378,13 @@ impl AudioTranscriber {
             reader
                 .samples::<i16>()
                 .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(|e| AppError::Audio(format!("Failed to read samples: {}", e)))?
+                .map_err(|e| AppError::Audio(format!("Failed to read samples: {e}")))?
         } else {
             // Simple resampling - in production, use a proper resampling library
             let samples: Vec<i16> = reader
                 .samples::<i16>()
                 .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(|e| AppError::Audio(format!("Failed to read samples: {}", e)))?;
+                .map_err(|e| AppError::Audio(format!("Failed to read samples: {e}")))?;
             self.resample_audio(&samples, spec.sample_rate, spec.channels)?
         };
 
@@ -452,7 +451,7 @@ impl AudioTranscriber {
             .join("vosk-models");
 
         std::fs::create_dir_all(&models_dir)
-            .map_err(|e| AppError::Audio(format!("Failed to create models directory: {}", e)))?;
+            .map_err(|e| AppError::Audio(format!("Failed to create models directory: {e}")))?;
 
         let model_path = models_dir.join("vosk-model-en-us-0.22");
 
@@ -522,7 +521,7 @@ impl AudioTranscriber {
         self.llm_client
             .send_request(&prompt)
             .await
-            .map_err(|e| AppError::Audio(format!("Failed to enhance transcription: {}", e)))
+            .map_err(|e| AppError::Audio(format!("Failed to enhance transcription: {e}")))
     }
 
     // Google Speech-to-Text
@@ -557,7 +556,7 @@ impl AudioTranscriber {
             .arg(&script)
             .arg(audio_path.to_string_lossy().to_string())
             .output()
-            .map_err(|e| AppError::Audio(format!("Failed to run AppleScript: {}", e)))?;
+            .map_err(|e| AppError::Audio(format!("Failed to run AppleScript: {e}")))?;
 
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -588,7 +587,7 @@ impl AudioTranscriber {
                 language: Some("en".to_string()),
                 duration_seconds: 0.0,
             }),
-            Err(e) => Err(AppError::Audio(format!("LLM transcription failed: {}", e))),
+            Err(e) => Err(AppError::Audio(format!("LLM transcription failed: {e}"))),
         }
     }
 
@@ -618,8 +617,7 @@ impl AudioTranscriber {
                 })
             }
             Err(e) => Err(AppError::Audio(format!(
-                "Failed to generate summary: {}",
-                e
+                "Failed to generate summary: {e}"
             ))),
         }
     }
