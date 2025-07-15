@@ -31,11 +31,6 @@ url = "2"
 urlencoding = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-objc = "0.2"
-objc-foundation = "0.1"
-cocoa = "0.26"
-core-graphics = "0.24"
-core-foundation = "0.10"
 dirs = "5"
 cpal = "0.15"
 hound = "3.5"
@@ -56,6 +51,11 @@ mime_guess = "2.0"
 # vosk = "0.3.1"  # Commented out due to native library dependencies
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+objc-foundation = "0.1"
+cocoa = "0.26"
+core-graphics = "0.24"
+core-foundation = "0.10"
 objc2 = "0.5"
 objc2-foundation = { version = "0.2", features = ["NSString", "NSDate", "NSArray", "NSBundle"] }
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSApplication"] }
