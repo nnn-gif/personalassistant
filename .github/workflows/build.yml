@@ -144,6 +144,7 @@ jobs:
           - Activity monitoring with goal tracking
           - Multi-model LLM support
           - Better error handling and logging
+          - Fixed build issues and icon packaging
         draft: false
         prerelease: false
       env:
