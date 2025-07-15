@@ -78,7 +78,7 @@ impl BrowserAIAgent {
         let plan = match self.create_research_plan(&query).await {
             Ok(p) => {
                 println!("Agent: Research plan created successfully");
-                println!("Plan: {:?}", p);
+                println!("Plan: {p:?}");
                 p
             }
             Err(e) => {
@@ -311,7 +311,7 @@ impl BrowserAIAgent {
     async fn create_research_plan(&self, query: &str) -> Result<ResearchPlan> {
         // Try to use LLM for intelligent planning
         let prompt = format!(
-            "Create a research plan for the following query: '{}'\n\n\
+            "Create a research plan for the following query: '{query}'\n\n\
             Analyze the query and return a JSON object with:\n\
             1. main_topic: The main topic being researched\n\
             2. category: Category (e.g., 'technical', 'academic', 'news', 'product', 'general')\n\
@@ -325,8 +325,7 @@ impl BrowserAIAgent {
               \"subtopics\": [\"...\"],\n\
               \"search_queries\": [\"...\"],\n\
               \"requires_browser\": false\n\
-            }}",
-            query
+            }}"
         );
 
         match self.llm_client.send_request(&prompt).await {
@@ -408,11 +407,10 @@ impl BrowserAIAgent {
 
     async fn extract_relevant_content(&self, content: &str, query: &str) -> Result<String> {
         let prompt = format!(
-            "Extract the most relevant information from the following content for the query: '{}'\n\n\
+            "Extract the most relevant information from the following content for the query: '{query}'\n\n\
             Content:\n{}\n\n\
             Extract and summarize only the parts directly relevant to the query. \
             Keep important details, facts, and examples. Limit to 500 words.",
-            query,
             content.chars().take(5000).collect::<String>()
         );
 
@@ -438,13 +436,13 @@ impl BrowserAIAgent {
         }
 
         let prompt = format!(
-            "Synthesize the following research results into a comprehensive conclusion:\n\n{}\n\n\
+            "Synthesize the following research results into a comprehensive conclusion:\n\n{context}\n\n\
             Provide a well-structured summary that:\n\
             1. Answers the original query: '{}'\n\
             2. Highlights key findings and insights\n\
             3. Provides actionable recommendations if applicable\n\
             4. Notes any gaps or areas needing further research",
-            context, task.query
+            task.query
         );
 
         match self.llm_client.send_request(&prompt).await {
