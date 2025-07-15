@@ -76,7 +76,7 @@ impl SimpleAudioRecorder {
 
                             recordings.push(AudioRecording {
                                 id: id.clone(),
-                                title: format!("Recording {}", id),
+                                title: format!("Recording {id}"),
                                 started_at: chrono::DateTime::<Utc>::from(
                                     metadata
                                         .created()
@@ -115,7 +115,7 @@ impl SimpleAudioRecorder {
 
         if let Some(device) = host.default_input_device() {
             if let Ok(name) = device.name() {
-                device_names.push(format!("Default Input: {}", name));
+                device_names.push(format!("Default Input: {name}"));
             }
         }
 
@@ -142,9 +142,9 @@ impl SimpleAudioRecorder {
             } else {
                 // Search for the device by name
                 host.input_devices()
-                    .map_err(|e| AppError::Audio(format!("Failed to list devices: {}", e)))?
+                    .map_err(|e| AppError::Audio(format!("Failed to list devices: {e}")))?
                     .find(|d| d.name().ok() == Some(name.clone()))
-                    .ok_or_else(|| AppError::Audio(format!("Device {} not found", name)))?
+                    .ok_or_else(|| AppError::Audio(format!("Device {name} not found")))?
             }
         } else {
             host.default_input_device()
@@ -154,14 +154,14 @@ impl SimpleAudioRecorder {
         // Get default config
         let config = device
             .default_input_config()
-            .map_err(|e| AppError::Audio(format!("Failed to get device config: {}", e)))?;
+            .map_err(|e| AppError::Audio(format!("Failed to get device config: {e}")))?;
 
         let sample_rate = config.sample_rate().0;
         let channels = config.channels();
 
         // Create recording file
         let id = Uuid::new_v4();
-        let file_path = self.recordings_dir.join(format!("{}.wav", id));
+        let file_path = self.recordings_dir.join(format!("{id}.wav"));
 
         let spec = WavSpec {
             channels,
@@ -172,7 +172,7 @@ impl SimpleAudioRecorder {
 
         let writer = Arc::new(Mutex::new(Some(
             WavWriter::create(&file_path, spec)
-                .map_err(|e| AppError::Audio(format!("Failed to create WAV file: {}", e)))?,
+                .map_err(|e| AppError::Audio(format!("Failed to create WAV file: {e}")))?,
         )));
 
         // Store recording info
@@ -213,12 +213,12 @@ impl SimpleAudioRecorder {
                             }
                         },
                         move |err| {
-                            eprintln!("Stream error: {}", err);
+                            eprintln!("Stream error: {err}");
                             *ended_at_clone.lock().unwrap() = Some(Utc::now());
                         },
                         None,
                     )
-                    .map_err(|e| AppError::Audio(format!("Failed to build stream: {}", e)))?
+                    .map_err(|e| AppError::Audio(format!("Failed to build stream: {e}")))?
             }
             cpal::SampleFormat::I16 => {
                 let writer_clone2 = writer.clone();
@@ -240,19 +240,19 @@ impl SimpleAudioRecorder {
                             }
                         },
                         move |err| {
-                            eprintln!("Stream error: {}", err);
+                            eprintln!("Stream error: {err}");
                             *ended_at_clone2.lock().unwrap() = Some(Utc::now());
                         },
                         None,
                     )
-                    .map_err(|e| AppError::Audio(format!("Failed to build stream: {}", e)))?
+                    .map_err(|e| AppError::Audio(format!("Failed to build stream: {e}")))?
             }
             _ => return Err(AppError::Audio("Unsupported sample format".into())),
         };
 
         stream
             .play()
-            .map_err(|e| AppError::Audio(format!("Failed to start stream: {}", e)))?;
+            .map_err(|e| AppError::Audio(format!("Failed to start stream: {e}")))?;
 
         // Store the active recording
         let active_recording = ActiveRecording {
@@ -291,7 +291,7 @@ impl SimpleAudioRecorder {
             if let Some(writer) = writer_guard.take() {
                 writer
                     .finalize()
-                    .map_err(|e| AppError::Audio(format!("Failed to finalize recording: {}", e)))?;
+                    .map_err(|e| AppError::Audio(format!("Failed to finalize recording: {e}")))?;
             }
         }
 
@@ -340,7 +340,7 @@ impl SimpleAudioRecorder {
         let index = recordings
             .iter()
             .position(|r| r.id == recording_id)
-            .ok_or_else(|| AppError::Audio(format!("Recording {} not found", recording_id)))?;
+            .ok_or_else(|| AppError::Audio(format!("Recording {recording_id} not found")))?;
 
         let recording = &recordings[index];
         let file_path = PathBuf::from(&recording.file_path);
@@ -348,7 +348,7 @@ impl SimpleAudioRecorder {
         // Delete the file
         if file_path.exists() {
             fs::remove_file(&file_path)
-                .map_err(|e| AppError::Audio(format!("Failed to delete file: {}", e)))?;
+                .map_err(|e| AppError::Audio(format!("Failed to delete file: {e}")))?;
         }
 
         // Remove from the list
@@ -364,7 +364,7 @@ impl SimpleAudioRecorder {
         let recording = recordings
             .iter_mut()
             .find(|r| r.id == recording_id)
-            .ok_or_else(|| AppError::Audio(format!("Recording {} not found", recording_id)))?;
+            .ok_or_else(|| AppError::Audio(format!("Recording {recording_id} not found")))?;
 
         // Update the transcription
         recording.transcription = Some(transcription);
