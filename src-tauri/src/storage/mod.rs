@@ -20,9 +20,9 @@ impl LocalStorage {
 
         // Create directories if they don't exist
         fs::create_dir_all(&data_dir)
-            .map_err(|e| AppError::Storage(format!("Failed to create data directory: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to create data directory: {e}")))?;
         fs::create_dir_all(&goals_dir)
-            .map_err(|e| AppError::Storage(format!("Failed to create goals directory: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to create goals directory: {e}")))?;
 
         Ok(Self {
             data_dir,
@@ -33,10 +33,10 @@ impl LocalStorage {
     pub fn save_research(&self, task: &SavedResearchTask) -> Result<()> {
         let file_path = self.data_dir.join(format!("{}.json", task.id));
         let json = serde_json::to_string_pretty(task)
-            .map_err(|e| AppError::Storage(format!("Failed to serialize research: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to serialize research: {e}")))?;
 
         fs::write(&file_path, json)
-            .map_err(|e| AppError::Storage(format!("Failed to write research file: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to write research file: {e}")))?;
 
         Ok(())
     }
@@ -45,16 +45,16 @@ impl LocalStorage {
         let mut results = Vec::new();
 
         let entries = fs::read_dir(&self.data_dir)
-            .map_err(|e| AppError::Storage(format!("Failed to read data directory: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to read data directory: {e}")))?;
 
         for entry in entries {
             let entry =
-                entry.map_err(|e| AppError::Storage(format!("Failed to read entry: {}", e)))?;
+                entry.map_err(|e| AppError::Storage(format!("Failed to read entry: {e}")))?;
             let path = entry.path();
 
             if path.extension().and_then(|s| s.to_str()) == Some("json") {
                 let content = fs::read_to_string(&path)
-                    .map_err(|e| AppError::Storage(format!("Failed to read file: {}", e)))?;
+                    .map_err(|e| AppError::Storage(format!("Failed to read file: {e}")))?;
 
                 if let Ok(task) = serde_json::from_str::<SavedResearchTask>(&content) {
                     // Filter by search query if provided
@@ -87,11 +87,11 @@ impl LocalStorage {
     }
 
     pub fn delete_research(&self, id: &uuid::Uuid) -> Result<()> {
-        let file_path = self.data_dir.join(format!("{}.json", id));
+        let file_path = self.data_dir.join(format!("{id}.json"));
 
         if file_path.exists() {
             fs::remove_file(&file_path)
-                .map_err(|e| AppError::Storage(format!("Failed to delete research file: {}", e)))?;
+                .map_err(|e| AppError::Storage(format!("Failed to delete research file: {e}")))?;
         }
 
         Ok(())
@@ -101,10 +101,10 @@ impl LocalStorage {
     pub fn save_goals(&self, goals: &Vec<Goal>) -> Result<()> {
         let file_path = self.goals_dir.join("goals.json");
         let json = serde_json::to_string_pretty(goals)
-            .map_err(|e| AppError::Storage(format!("Failed to serialize goals: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to serialize goals: {e}")))?;
 
         fs::write(&file_path, json)
-            .map_err(|e| AppError::Storage(format!("Failed to write goals file: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to write goals file: {e}")))?;
 
         Ok(())
     }
@@ -117,10 +117,10 @@ impl LocalStorage {
         }
 
         let content = fs::read_to_string(&file_path)
-            .map_err(|e| AppError::Storage(format!("Failed to read goals file: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to read goals file: {e}")))?;
 
         let goals = serde_json::from_str::<Vec<Goal>>(&content)
-            .map_err(|e| AppError::Storage(format!("Failed to parse goals: {}", e)))?;
+            .map_err(|e| AppError::Storage(format!("Failed to parse goals: {e}")))?;
 
         Ok(goals)
     }
