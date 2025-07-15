@@ -1,89 +1,166 @@
-# Personal Assistant
+# Personal Assistant 🤖
 
-An AI-powered productivity assistant that combines comprehensive activity tracking, intelligent research capabilities, and local AI processing to help users achieve peak productivity while maintaining complete data privacy.
+[![Build Status](https://github.com/nnn-gif/personalassistant/actions/workflows/build.yml/badge.svg)](https://github.com/nnn-gif/personalassistant/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/nnn-gif/personalassistant/releases)
 
-## Features
+A privacy-first, AI-powered personal productivity assistant that runs entirely on your device. Track activities, manage goals, process documents, and chat with your data using local AI models.
 
-- **Browser AI Research Assistant**: Advanced web research tool with intelligent query splitting, parallel web scraping, and AI-powered result synthesis
-- **Comprehensive Activity Tracking**: Monitor application usage, window titles, and system events with real-time updates
-- **Goal Management System**: Create and track productivity goals with allowed applications and time-based targets
-- **Privacy-First Architecture**: All data stored and processed locally with no cloud uploads
-- **AI-Powered Insights**: Local LLM integration for productivity scoring and personalized recommendations
-- **Interactive Dashboards**: Real-time visualizations of productivity metrics and goal progress
+## ✨ Features
 
-## Tech Stack
+### 🔍 **Intelligent Document Processing**
+- Index and search your personal documents (PDF, DOCX, TXT, and more)
+- Advanced PDF text extraction with multiple fallback methods
+- Chat with your documents using local AI models
+- Support for 50+ file formats with comprehensive metadata extraction
 
-- **Backend**: Rust with Tauri 2
-- **Frontend**: React + TypeScript + Vite + Tailwind CSS
-- **Database**: SurrealDB (embedded)
-- **AI**: Ollama (local LLM) via genai-rust
-- **Web Scraping**: Playwright
-- **UI Components**: Framer Motion, Recharts, Lucide Icons
+### 📊 **Activity Monitoring**
+- Automatic tracking of computer usage and application activity
+- Privacy-focused monitoring (all data stays local)
+- Detailed analytics and productivity insights
+- Integration with goal tracking for context-aware productivity
 
-## Prerequisites
+### 🎯 **Goal Management**
+- Create and track productivity goals
+- Monitor progress with detailed metrics
+- Goal-based document organization and filtering
+- Time tracking with automatic activity correlation
 
-- Rust (latest stable)
-- Node.js 18+
-- npm or pnpm
-- Ollama installed and running locally
-- macOS (for activity tracking features)
+### 🧠 **Local AI Integration**
+- Chat with your documents using Ollama models
+- Multiple LLM support (Llama, Qwen, Gemma, Mistral, etc.)
+- Vector search with Qdrant or built-in similarity search
+- Context-aware responses using both documents and activity data
 
-## Installation
+### 🔒 **Privacy-First Design**
+- All data processing happens locally on your device
+- No external API calls or data sharing
+- Encrypted local storage
+- Complete control over your personal information
 
-1. Clone the repository:
+## 🚀 Quick Start
+
+### Prerequisites
+1. **Install Ollama** (required for AI features):
+   ```bash
+   curl -fsSL https://ollama.ai/install.sh | sh
+   ```
+
+2. **Download AI models**:
+   ```bash
+   ollama pull nomic-embed-text
+   ollama pull llama3.2:1b
+   ```
+
+3. **Install Qdrant** (optional, for enhanced search):
+   ```bash
+   docker run -d -p 6333:6333 --name qdrant qdrant/qdrant
+   ```
+
+### Installation
+
+#### Download from Releases
+1. Go to [Releases](https://github.com/nnn-gif/personalassistant/releases)
+2. Download the appropriate package for your platform:
+   - **macOS**: Download the `.dmg` file
+   - **Windows**: Download the `.msi` or `.exe` file  
+   - **Linux**: Download the `.deb` or `.AppImage` file
+3. Follow the installation instructions in [INSTALLATION.md](INSTALLATION.md)
+
+#### Build from Source
 ```bash
 git clone https://github.com/nnn-gif/personalassistant.git
 cd personalassistant
-```
-
-2. Install frontend dependencies:
-```bash
 npm install
+npm run tauri:build
 ```
 
-3. Install Rust dependencies:
-```bash
-cd src-tauri
-cargo build
-```
+## 📖 Usage
 
-4. Start Ollama with a model:
-```bash
-ollama pull llama3.2
-ollama serve
-```
+### Getting Started
+1. **Launch the application** and let it create the local database
+2. **Start activity tracking** - monitoring begins automatically
+3. **Index your documents** through the Document Manager
+4. **Create goals** to organize your productivity tracking
+5. **Chat with your data** using the Document Chat feature
 
-## Development
+### Key Workflows
 
-Run the development server:
+#### Document Management
+- Drag and drop files into the Document Manager
+- Organize documents by goals for better context
+- Use the search functionality to find relevant information
+- Clear the vector database to start fresh when needed
+
+#### Activity Tracking
+- Monitor real-time activity in the Activity Monitor
+- View productivity trends and insights
+- Correlate activities with your goals
+- Export activity data for external analysis
+
+#### AI Chat
+- Ask questions about your indexed documents
+- Switch between different AI models for varied responses
+- Get context-aware answers that include recent activity
+- View source documents for chat responses
+
+## 🛠️ Development
+
+### Tech Stack
+- **Frontend**: React + TypeScript + Tailwind CSS
+- **Backend**: Rust + Tauri v2
+- **Database**: SQLite with optional Qdrant vector store
+- **AI**: Ollama for local LLM inference
+- **Build**: GitHub Actions for cross-platform builds
+
+### Development Setup
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for detailed setup instructions.
+
 ```bash
+# Quick start
+git clone https://github.com/nnn-gif/personalassistant.git
+cd personalassistant
+npm install
 npm run tauri:dev
 ```
 
-## Building
+## 📋 System Requirements
 
-Build for production:
-```bash
-npm run tauri build
-```
+- **macOS**: 10.15+ (Catalina or newer)
+- **Windows**: Windows 10 version 1903+
+- **Linux**: Ubuntu 18.04+ or equivalent
+- **RAM**: 4GB minimum, 8GB recommended
+- **Storage**: 500MB available space
+- **Dependencies**: Ollama (required), Qdrant (optional)
 
-## Architecture
+## 🤝 Contributing
 
-The application follows a modular architecture:
+We welcome contributions! Please see our [Contributing Guide](.github/CONTRIBUTING.md) for details.
 
-- **Activity Tracking**: Platform-specific implementations for monitoring user activity
-- **Browser AI**: Playwright-based web scraping with LLM-powered analysis
-- **Goal Management**: Session-based goal tracking with progress monitoring
-- **LLM Integration**: Abstracted LLM client supporting multiple providers
-- **Services**: Tauri commands exposing backend functionality to frontend
+### Ways to Contribute
+- 🐛 Report bugs and issues
+- 💡 Suggest new features
+- 📖 Improve documentation
+- 🔧 Submit code improvements
+- 🧪 Help with testing
 
-## Privacy
+## 📄 License
 
-- All data is stored locally on your device
-- No telemetry or analytics
-- LLM inference happens on-device via Ollama
-- Web scraping respects robots.txt
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## License
+## 🙏 Acknowledgments
 
-MIT
+- [Tauri](https://tauri.app/) for the cross-platform framework
+- [Ollama](https://ollama.ai/) for local AI model management
+- [Qdrant](https://qdrant.tech/) for vector search capabilities
+- The Rust and React communities for excellent tooling
+
+## 📞 Support
+
+- 📋 [GitHub Issues](https://github.com/nnn-gif/personalassistant/issues) for bug reports
+- 💬 [GitHub Discussions](https://github.com/nnn-gif/personalassistant/discussions) for questions
+- 📖 [Documentation](INSTALLATION.md) for setup help
+
+---
+
+Made with ❤️ by the Personal Assistant team. Your productivity, your data, your control.

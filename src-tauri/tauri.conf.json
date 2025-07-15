@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Personal Assistant",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.personalassistant.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -42,7 +42,34 @@
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/128x128@2x.png"
-    ]
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "category": "Productivity",
+    "shortDescription": "AI-powered personal productivity assistant",
+    "longDescription": "Personal Assistant is a local AI-powered productivity application that helps you track activities, manage goals, process documents, and maintain focus. Features include document indexing with RAG, activity monitoring, goal tracking, and local LLM integration.",
+    "copyright": "© 2024 Personal Assistant",
+    "licenseFile": "../LICENSE",
+    "publisher": "Personal Assistant Team",
+    "homepage": "https://github.com/nnn-gif/personalassistant",
+    "externalBin": [],
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null,
+      "hardenedRuntime": true,
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "webviewInstallMode": {
+        "silent": true
+      }
+    }
   }
 }
