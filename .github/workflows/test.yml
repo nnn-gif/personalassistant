@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test-frontend:
+  build-frontend:
     runs-on: ubuntu-latest
     
     steps:
@@ -26,22 +26,36 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Run TypeScript check
+    - name: Run TypeScript check and build
       run: npm run build
 
-    - name: Run tests
+    - name: Run frontend tests
       run: npm test --if-present
 
+    - name: Upload frontend build
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-dist
+        path: dist/
+        retention-days: 1
+
   test-backend:
+    needs: build-frontend
     strategy:
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
     
     runs-on: ${{ matrix.os }}
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Download frontend build
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-dist
+        path: dist/
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -61,11 +75,27 @@ jobs:
       run: cargo fmt --manifest-path=src-tauri/Cargo.toml --check
 
   security-audit:
+    needs: build-frontend
     runs-on: macos-latest
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Download frontend build
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-dist
+        path: dist/
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install frontend dependencies
+      run: npm ci
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
