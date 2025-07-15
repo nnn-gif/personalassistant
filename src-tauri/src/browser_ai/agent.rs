@@ -43,7 +43,7 @@ impl BrowserAIAgent {
         query: String,
         progress_sender: mpsc::Sender<BrowserAIProgress>,
     ) -> Result<Uuid> {
-        println!("Agent: Starting research for: {}", query);
+        println!("Agent: Starting research for: {query}");
 
         let task_id = Uuid::new_v4();
         let now = Utc::now();
@@ -82,8 +82,8 @@ impl BrowserAIAgent {
                 p
             }
             Err(e) => {
-                println!("Agent: Error creating research plan: {}", e);
-                task.status = TaskStatus::Failed(format!("Failed to create plan: {}", e));
+                println!("Agent: Error creating research plan: {e}");
+                task.status = TaskStatus::Failed(format!("Failed to create plan: {e}"));
                 let _ = self.send_progress(&task, &progress_sender).await;
                 return Err(e);
             }
@@ -134,10 +134,10 @@ impl BrowserAIAgent {
                 .send_detailed_progress(
                     &task,
                     &progress_sender,
-                    Some(format!("Searching: {}", subtask_query)),
+                    Some(format!("Searching: {subtask_query}")),
                     Some(PhaseDetails {
                         phase: format!("Search {}/{}", i + 1, total_subtasks),
-                        details: format!("Finding sources for: {}", subtask_query),
+                        details: format!("Finding sources for: {subtask_query}"),
                         estimated_completion: None,
                     }),
                 )
@@ -198,7 +198,7 @@ impl BrowserAIAgent {
                 .send_detailed_progress(
                     &task,
                     &progress_sender,
-                    Some(format!("Extracting content for: {}", subtask_query)),
+                    Some(format!("Extracting content for: {subtask_query}")),
                     None,
                 )
                 .await;
@@ -334,13 +334,13 @@ impl BrowserAIAgent {
                 match serde_json::from_str::<ResearchPlan>(&self.extract_json(&response)?) {
                     Ok(plan) => Ok(plan),
                     Err(e) => {
-                        println!("Failed to parse LLM response, using fallback: {}", e);
+                        println!("Failed to parse LLM response, using fallback: {e}");
                         Ok(self.create_fallback_plan(query))
                     }
                 }
             }
             Err(e) => {
-                println!("LLM request failed, using fallback plan: {}", e);
+                println!("LLM request failed, using fallback plan: {e}");
                 Ok(self.create_fallback_plan(query))
             }
         }
@@ -351,14 +351,14 @@ impl BrowserAIAgent {
             main_topic: query.to_string(),
             category: "general".to_string(),
             subtopics: vec![
-                format!("{} overview", query),
-                format!("{} details", query),
-                format!("{} examples", query),
+                format!("{query} overview"),
+                format!("{query} details"),
+                format!("{query} examples"),
             ],
             search_queries: vec![
                 query.to_string(),
-                format!("{} tutorial", query),
-                format!("{} guide", query),
+                format!("{query} tutorial"),
+                format!("{query} guide"),
             ],
             requires_browser: false,
         }
@@ -477,16 +477,16 @@ impl BrowserAIAgent {
     async fn search_web(&self, query: &str) -> Result<Vec<SearchResult>> {
         // Use DuckDuckGo HTML API
         let encoded_query = urlencoding::encode(query);
-        let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
+        let url = format!("https://html.duckduckgo.com/html/?q={encoded_query}");
 
         let response = reqwest::get(&url)
             .await
-            .map_err(|e| AppError::BrowserAI(format!("Search request failed: {}", e)))?;
+            .map_err(|e| AppError::BrowserAI(format!("Search request failed: {e}")))?;
 
         let html = response
             .text()
             .await
-            .map_err(|e| AppError::BrowserAI(format!("Failed to read search response: {}", e)))?;
+            .map_err(|e| AppError::BrowserAI(format!("Failed to read search response: {e}")))?;
 
         // Parse search results from HTML
         let document = scraper::Html::parse_document(&html);
@@ -534,8 +534,8 @@ impl BrowserAIAgent {
             // Fallback to mock results if parsing fails
             results = vec![SearchResult {
                 url: format!("https://en.wikipedia.org/wiki/{}", query.replace(' ', "_")),
-                title: format!("{} - Wikipedia", query),
-                snippet: format!("Information about {}", query),
+                title: format!("{query} - Wikipedia"),
+                snippet: format!("Information about {query}"),
                 relevance_score: 0.9,
             }];
         }
