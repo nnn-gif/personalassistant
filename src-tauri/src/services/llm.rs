@@ -40,6 +40,7 @@ pub async fn get_recommendations(
 pub async fn chat_with_documents(
     llm: State<'_, Arc<LlmClient>>,
     rag_system: State<'_, Arc<Mutex<crate::rag::RAGSystemWrapper>>>,
+    activity_tracker: State<'_, Arc<Mutex<crate::activity_tracking::ActivityTracker>>>,
     query: String,
     goal_id: Option<String>,
     limit: Option<usize>,
@@ -54,6 +55,12 @@ pub async fn chat_with_documents(
     let limit = limit.unwrap_or(5);
 
     println!("Starting document chat with query: {}", query);
+    
+    // Get recent activity context
+    let activity_context = {
+        let tracker = activity_tracker.lock().await;
+        tracker.get_recent_activities(10)
+    };
     
     // Search for relevant documents
     let rag = rag_system.lock().await;
@@ -77,14 +84,42 @@ pub async fn chat_with_documents(
         println!("---");
     }
 
-    // Build context from search results
+    // Build context from search results and recent activity
     let mut context = String::new();
-    for (i, result) in search_results.iter().enumerate() {
-        context.push_str(&format!(
-            "--- Context {} ---\n{}\n\n",
-            i + 1,
-            result.content
-        ));
+    
+    // Add document context
+    if !search_results.is_empty() {
+        context.push_str("=== DOCUMENT CONTEXT ===\n");
+        for (i, result) in search_results.iter().enumerate() {
+            context.push_str(&format!(
+                "--- Document {} ---\n{}\n\n",
+                i + 1,
+                result.content
+            ));
+        }
+    }
+    
+    // Add activity context
+    if !activity_context.is_empty() {
+        context.push_str("=== RECENT ACTIVITY CONTEXT ===\n");
+        context.push_str("Your recent activities (last 10 activities):\n");
+        for (i, activity) in activity_context.iter().enumerate() {
+            let duration_str = if activity.duration_seconds >= 60 {
+                format!("{}m{}s", activity.duration_seconds / 60, activity.duration_seconds % 60)
+            } else {
+                format!("{}s", activity.duration_seconds)
+            };
+            
+            context.push_str(&format!(
+                "{}. {} - {} ({}) - Duration: {}\n",
+                i + 1,
+                activity.timestamp.format("%H:%M"),
+                activity.app_usage.app_name,
+                activity.app_usage.window_title,
+                duration_str
+            ));
+        }
+        context.push_str("\n");
     }
 
     // Generate response using LLM with RAG context
@@ -98,12 +133,13 @@ pub async fn chat_with_documents(
     } else {
         format!(
             "You are a local personal assistant running on the user's own device. \
-            The user has indexed their personal documents into your local knowledge base. \
-            Answer the user's question using the information from their local documents: \"{}\"\n\n\
-            Local Document Content:\n{}\n\n\
-            This information is from the user's own files stored locally on their device. \
-            You are running locally and have full access to help the user with their own documents. \
-            Please provide a direct and helpful answer based on this information.",
+            The user has indexed their personal documents into your local knowledge base and you have access to their activity data. \
+            Answer the user's question using the available context: \"{}\"\n\n\
+            Available Context:\n{}\n\n\
+            This information includes the user's personal documents and recent activity data stored locally on their device. \
+            You are running locally and have full access to help the user with their own information. \
+            Use both document content and activity context to provide a comprehensive and helpful answer. \
+            When referencing activities, be specific about apps, times, and durations when relevant.",
             query, context
         )
     };
