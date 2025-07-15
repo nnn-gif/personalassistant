@@ -59,7 +59,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
         cache: 'npm'
 
     - name: Install frontend dependencies
@@ -80,7 +80,7 @@ jobs:
 
     - name: Upload artifacts (macOS)
       if: matrix.platform == 'macos-latest'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-${{ matrix.arch }}
         path: |
@@ -90,7 +90,7 @@ jobs:
 
     - name: Upload artifacts (Ubuntu)
       if: matrix.platform == 'ubuntu-20.04'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-${{ matrix.arch }}
         path: |
@@ -100,7 +100,7 @@ jobs:
 
     - name: Upload artifacts (Windows)
       if: matrix.platform == 'windows-latest'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-${{ matrix.arch }}
         path: |
@@ -118,7 +118,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         path: artifacts
 

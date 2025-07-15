@@ -56,7 +56,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
         cache: 'npm'
 
     - name: Install frontend dependencies
@@ -75,7 +75,7 @@ jobs:
 
     - name: Upload nightly artifacts (macOS)
       if: matrix.platform == 'macos-latest'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: nightly-macos-${{ matrix.arch }}
         path: |
@@ -85,7 +85,7 @@ jobs:
 
     - name: Upload nightly artifacts (Ubuntu)
       if: matrix.platform == 'ubuntu-20.04'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: nightly-linux-${{ matrix.arch }}
         path: |
@@ -95,7 +95,7 @@ jobs:
 
     - name: Upload nightly artifacts (Windows)
       if: matrix.platform == 'windows-latest'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: nightly-windows-${{ matrix.arch }}
         path: |
@@ -110,9 +110,9 @@ jobs:
     
     steps:
     - name: Delete old artifacts
-      uses: geekyeggo/delete-artifact@v2
+      uses: geekyeggo/delete-artifact@v5
       with:
         name: |
           nightly-*
-        skipIfNotFound: true
+        useGlob: true
         failOnError: false
