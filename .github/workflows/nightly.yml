@@ -33,7 +33,6 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-
     - name: Rust setup
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -84,6 +83,7 @@ jobs:
           src-tauri/target/${{ matrix.target }}/debug/bundle/msi/*.msi
           src-tauri/target/${{ matrix.target }}/debug/bundle/nsis/*.exe
         retention-days: 7
+
 
   cleanup-old-artifacts:
     needs: nightly-build

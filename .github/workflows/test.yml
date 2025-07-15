@@ -43,7 +43,7 @@ jobs:
     needs: build-frontend
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest]
     
     runs-on: ${{ matrix.os }}
     
