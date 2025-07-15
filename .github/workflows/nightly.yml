@@ -22,10 +22,6 @@ jobs:
             args: '--target aarch64-apple-darwin'
             target: 'aarch64-apple-darwin'
             arch: 'arm64'
-          - platform: 'windows-latest'
-            args: '--target x86_64-pc-windows-msvc'
-            target: 'x86_64-pc-windows-msvc'
-            arch: 'x64'
 
     runs-on: ${{ matrix.platform }}
     
@@ -74,15 +70,6 @@ jobs:
         retention-days: 7
 
 
-    - name: Upload nightly artifacts (Windows)
-      if: matrix.platform == 'windows-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: nightly-windows-${{ matrix.arch }}
-        path: |
-          src-tauri/target/${{ matrix.target }}/debug/bundle/msi/*.msi
-          src-tauri/target/${{ matrix.target }}/debug/bundle/nsis/*.exe
-        retention-days: 7
 
 
   cleanup-old-artifacts:
