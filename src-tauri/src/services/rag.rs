@@ -1,4 +1,4 @@
-use crate::rag::RAGSystemWrapper;
+use crate::rag::{RAGSystemWrapper, EnhancedDocumentProcessor};
 use tauri::{State, Manager, AppHandle, Emitter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -241,15 +241,30 @@ pub async fn update_document_index(
 
 #[tauri::command]
 pub async fn get_supported_file_types() -> std::result::Result<Vec<String>, String> {
-    let processor = crate::rag::DocumentProcessor::new();
+    let processor = EnhancedDocumentProcessor::new();
     let extensions = processor.get_supported_extensions();
     Ok(extensions.into_iter().map(|s| s.to_string()).collect())
 }
 
 #[tauri::command]
 pub async fn check_file_supported(file_path: String) -> std::result::Result<bool, String> {
-    let processor = crate::rag::DocumentProcessor::new();
+    let processor = EnhancedDocumentProcessor::new();
     Ok(processor.is_supported_file(&file_path))
+}
+
+#[tauri::command]
+pub async fn get_enhanced_file_info(file_path: String) -> std::result::Result<EnhancedFileInfo, String> {
+    let processor = EnhancedDocumentProcessor::new();
+    
+    let is_supported = processor.is_supported_file(&file_path);
+    let stats = processor.get_file_stats(&file_path).map_err(|e| e.to_string())?;
+    
+    Ok(EnhancedFileInfo {
+        file_path,
+        is_supported,
+        stats,
+        supported_extensions: processor.get_supported_extensions().into_iter().map(|s| s.to_string()).collect(),
+    })
 }
 
 #[tauri::command]
@@ -348,6 +363,47 @@ pub async fn cleanup_corrupted_documents(
     })
 }
 
+#[tauri::command]
+pub async fn clear_vector_database(
+    rag_system: State<'_, RAGState>,
+) -> std::result::Result<ClearDatabaseResult, String> {
+    let mut rag = rag_system.lock().await;
+    
+    println!("Clearing entire vector database...");
+    
+    // Get all documents first
+    let documents = rag.list_documents(None).await.map_err(|e| e.to_string())?;
+    let total_documents = documents.len();
+    
+    let mut removed_count = 0;
+    let mut removed_ids = Vec::new();
+    let mut failed_removals = Vec::new();
+    
+    // Remove all documents
+    for document in documents {
+        match rag.remove_document(document.id).await {
+            Ok(_) => {
+                removed_count += 1;
+                removed_ids.push(document.id.to_string());
+                println!("Removed document: {} ({})", document.title, document.id);
+            }
+            Err(e) => {
+                eprintln!("Failed to remove document {}: {}", document.id, e);
+                failed_removals.push(format!("{}: {}", document.title, e));
+            }
+        }
+    }
+    
+    println!("Vector database cleared: {} documents removed, {} failed", removed_count, failed_removals.len());
+    
+    Ok(ClearDatabaseResult {
+        total_documents,
+        removed_count,
+        removed_ids,
+        failed_removals,
+    })
+}
+
 #[derive(serde::Serialize)]
 pub struct DatabaseInspection {
     pub total_documents: usize,
@@ -373,6 +429,14 @@ pub struct DocumentSummary {
 pub struct CleanupResult {
     pub removed_count: usize,
     pub removed_ids: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct ClearDatabaseResult {
+    pub total_documents: usize,
+    pub removed_count: usize,
+    pub removed_ids: Vec<String>,
+    pub failed_removals: Vec<String>,
 }
 
 // Event types for async indexing
@@ -411,6 +475,14 @@ pub struct SearchResultResponse {
     pub content: String,
     pub score: f32,
     pub metadata: std::collections::HashMap<String, String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct EnhancedFileInfo {
+    pub file_path: String,
+    pub is_supported: bool,
+    pub stats: std::collections::HashMap<String, String>,
+    pub supported_extensions: Vec<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

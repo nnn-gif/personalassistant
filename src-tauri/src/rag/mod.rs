@@ -1,5 +1,6 @@
 mod embeddings;
 mod document_processor;
+mod enhanced_document_processor;
 mod vector_store;
 mod qdrant_store;
 mod chunker;
@@ -7,6 +8,7 @@ mod retriever;
 
 pub use embeddings::EmbeddingModel;
 pub use document_processor::DocumentProcessor;
+pub use enhanced_document_processor::EnhancedDocumentProcessor;
 pub use vector_store::VectorStore;
 pub use qdrant_store::QdrantVectorStore;
 pub use chunker::TextChunker;
@@ -53,7 +55,7 @@ pub struct SearchResult {
 
 pub struct RAGSystem {
     embedding_model: EmbeddingModel,
-    document_processor: DocumentProcessor,
+    document_processor: EnhancedDocumentProcessor,
     vector_store: QdrantVectorStore,
     text_chunker: TextChunker,
 }
@@ -61,7 +63,7 @@ pub struct RAGSystem {
 // Keep the old VectorStore as a fallback
 pub struct LegacyRAGSystem {
     embedding_model: EmbeddingModel,
-    document_processor: DocumentProcessor,
+    document_processor: EnhancedDocumentProcessor,
     vector_store: VectorStore,
     text_chunker: TextChunker,
     retriever: DocumentRetriever,
@@ -76,7 +78,7 @@ pub enum RAGSystemWrapper {
 impl RAGSystem {
     pub async fn new() -> Result<Self> {
         let embedding_model = EmbeddingModel::new().await?;
-        let document_processor = DocumentProcessor::new();
+        let document_processor = EnhancedDocumentProcessor::new();
         
         // Try to create Qdrant store, fallback to VectorStore if failed
         let vector_store = match QdrantVectorStore::new().await {
@@ -102,7 +104,7 @@ impl RAGSystem {
 
     pub async fn new_with_automatic_fallback() -> Result<RAGSystemWrapper> {
         let embedding_model = EmbeddingModel::new().await?;
-        let document_processor = DocumentProcessor::new();
+        let document_processor = EnhancedDocumentProcessor::new();
         
         // Try Qdrant first, fallback to VectorStore if failed
         match QdrantVectorStore::new().await {
@@ -134,7 +136,7 @@ impl RAGSystem {
 
     pub async fn new_with_fallback() -> Result<LegacyRAGSystem> {
         let embedding_model = EmbeddingModel::new().await?;
-        let document_processor = DocumentProcessor::new();
+        let document_processor = EnhancedDocumentProcessor::new();
         let vector_store = VectorStore::new().await?;
         let text_chunker = TextChunker::new();
         let retriever = DocumentRetriever::new(vector_store.clone());
@@ -150,26 +152,35 @@ impl RAGSystem {
 
     /// Index a document from file path
     pub async fn index_document(&mut self, file_path: &str, goal_id: Option<Uuid>) -> Result<Document> {
+        println!("🚀 Starting document indexing for: {}", file_path);
+        
         // Process document
+        println!("📄 Processing document content...");
         let processed_doc = self.document_processor.process_file(file_path).await?;
         
         // Create document
+        println!("📋 Creating document structure...");
         let document = Document {
             id: Uuid::new_v4(),
-            title: processed_doc.title,
+            title: processed_doc.title.clone(),
             content: processed_doc.content.clone(),
             file_path: file_path.to_string(),
             goal_id,
             chunks: Vec::new(),
             created_at: chrono::Utc::now(),
         };
+        println!("✅ Document created with ID: {}", document.id);
 
         // Chunk the document
+        println!("✂️  Chunking document content...");
         let chunks = self.text_chunker.chunk_text(&processed_doc.content)?;
+        println!("✅ Document chunked into {} pieces", chunks.len());
         
         // Generate embeddings and create document chunks
+        println!("🧠 Generating embeddings for {} chunks...", chunks.len());
         let mut document_chunks = Vec::new();
         for (index, chunk_text) in chunks.iter().enumerate() {
+            println!("   Processing chunk {}/{} ({} characters)", index + 1, chunks.len(), chunk_text.len());
             let embedding = self.embedding_model.embed_text(chunk_text).await?;
             
             let chunk = DocumentChunk {
@@ -183,12 +194,23 @@ impl RAGSystem {
             
             document_chunks.push(chunk);
         }
+        println!("✅ All embeddings generated successfully");
 
         // Store in vector database
+        println!("💾 Storing document in vector database...");
         self.vector_store.store_document(&document, &document_chunks).await?;
+        println!("✅ Document stored in vector database");
 
         let mut final_document = document;
         final_document.chunks = document_chunks;
+        
+        println!("🎉 Document indexing completed successfully!");
+        println!("📊 Final statistics:");
+        println!("   - Document ID: {}", final_document.id);
+        println!("   - Title: {}", final_document.title);
+        println!("   - Content length: {} characters", final_document.content.len());
+        println!("   - Number of chunks: {}", final_document.chunks.len());
+        println!("   - Goal ID: {:?}", final_document.goal_id);
         
         Ok(final_document)
     }

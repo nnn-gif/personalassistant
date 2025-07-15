@@ -43,6 +43,7 @@ pub async fn chat_with_documents(
     query: String,
     goal_id: Option<String>,
     limit: Option<usize>,
+    model: Option<String>,
 ) -> std::result::Result<ChatResponse, String> {
     let goal_uuid = if let Some(goal_str) = goal_id {
         Some(Uuid::parse_str(&goal_str).map_err(|e| e.to_string())?)
@@ -64,12 +65,23 @@ pub async fn chat_with_documents(
         })?;
     
     println!("Found {} search results", search_results.len());
+    
+    // Log search results for debugging
+    for (i, result) in search_results.iter().enumerate() {
+        println!("Search Result {}: (score: {:.3})", i + 1, result.score);
+        println!("Document ID: {}", result.document_id);
+        println!("Content: {}", result.content.chars().take(200).collect::<String>());
+        if result.content.len() > 200 {
+            println!("... (truncated, full length: {} chars)", result.content.len());
+        }
+        println!("---");
+    }
 
     // Build context from search results
     let mut context = String::new();
     for (i, result) in search_results.iter().enumerate() {
         context.push_str(&format!(
-            "Document {}: {}\n\n",
+            "--- Context {} ---\n{}\n\n",
             i + 1,
             result.content
         ));
@@ -85,21 +97,26 @@ pub async fn chat_with_documents(
         )
     } else {
         format!(
-            "Based on the following documents, please answer the user's question: \"{}\"\n\n\
-            Documents:\n{}\n\n\
-            Please provide a comprehensive answer based on the information in these documents. \
-            If the documents don't contain enough information to fully answer the question, \
-            please mention what information is available and what might be missing.",
+            "You are a local personal assistant running on the user's own device. \
+            The user has indexed their personal documents into your local knowledge base. \
+            Answer the user's question using the information from their local documents: \"{}\"\n\n\
+            Local Document Content:\n{}\n\n\
+            This information is from the user's own files stored locally on their device. \
+            You are running locally and have full access to help the user with their own documents. \
+            Please provide a direct and helpful answer based on this information.",
             query, context
         )
     };
 
     println!("Sending prompt to LLM (length: {} chars)", prompt.len());
-    let response_text = llm.send_request(&prompt).await
-        .map_err(|e| {
-            eprintln!("LLM request failed: {}", e);
-            format!("LLM error: {}", e)
-        })?;
+    let response_text = if let Some(model) = model {
+        llm.send_request_with_model(&prompt, &model).await
+    } else {
+        llm.send_request(&prompt).await
+    }.map_err(|e| {
+        eprintln!("LLM request failed: {}", e);
+        format!("LLM error: {}", e)
+    })?;
     
     println!("Received LLM response (length: {} chars)", response_text.len());
 
@@ -126,4 +143,14 @@ pub struct DocumentSource {
     pub document_id: String,
     pub content: String,
     pub score: f32,
+}
+
+#[tauri::command]
+pub async fn get_available_models(
+    llm: State<'_, Arc<LlmClient>>,
+) -> std::result::Result<Vec<String>, String> {
+    match llm.get_available_models().await {
+        Ok(models) => Ok(models),
+        Err(e) => Err(format!("Failed to get available models: {}", e)),
+    }
 }

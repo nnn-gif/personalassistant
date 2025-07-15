@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Plus, Play, Pause } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import CreateGoalModal from './goals/CreateGoalModal'
-import GoalProgress from './goals/GoalProgress'
+// import GoalProgress from './goals/GoalProgress'
 
 interface Goal {
   id: string

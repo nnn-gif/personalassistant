@@ -143,7 +143,11 @@ impl LlmClient {
     }
     
     pub async fn send_request(&self, prompt: &str) -> Result<String> {
-        println!("LLM: Creating client and preparing request for model: {}", self.model_name);
+        self.send_request_with_model(prompt, &self.model_name).await
+    }
+    
+    pub async fn send_request_with_model(&self, prompt: &str, model: &str) -> Result<String> {
+        println!("LLM: Creating client and preparing request for model: {}", model);
         let client = Client::default();
         
         let chat_req = ChatRequest::new(vec![
@@ -152,7 +156,7 @@ impl LlmClient {
         
         println!("LLM: Sending request to model...");
         let chat_response = client
-            .exec_chat(&self.model_name, chat_req, None)
+            .exec_chat(model, chat_req, None)
             .await
             .map_err(|e| {
                 eprintln!("LLM: Request failed: {}", e);
@@ -170,6 +174,45 @@ impl LlmClient {
         }
         
         result
+    }
+    
+    pub async fn get_available_models(&self) -> Result<Vec<String>> {
+        println!("LLM: Getting available models from Ollama");
+        let client = reqwest::Client::new();
+        
+        match client.get("http://localhost:11434/api/tags").send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.json::<serde_json::Value>().await {
+                        Ok(data) => {
+                            if let Some(models) = data.get("models").and_then(|m| m.as_array()) {
+                                let model_names: Vec<String> = models
+                                    .iter()
+                                    .filter_map(|model| model.get("name").and_then(|n| n.as_str()))
+                                    .map(|s| s.to_string())
+                                    .collect();
+                                println!("LLM: Found {} available models", model_names.len());
+                                Ok(model_names)
+                            } else {
+                                println!("LLM: No models found in response");
+                                Ok(vec![])
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("LLM: Failed to parse models response: {}", e);
+                            Err(AppError::Llm(format!("Failed to parse models response: {}", e)))
+                        }
+                    }
+                } else {
+                    eprintln!("LLM: Failed to list models, status: {}", response.status());
+                    Err(AppError::Llm(format!("Failed to list models, status: {}", response.status())))
+                }
+            }
+            Err(e) => {
+                eprintln!("LLM: Failed to connect to Ollama: {}", e);
+                Err(AppError::Llm(format!("Failed to connect to Ollama: {}", e)))
+            }
+        }
     }
     
     fn extract_json(&self, text: &str) -> Result<serde_json::Value> {

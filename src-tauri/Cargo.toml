@@ -49,6 +49,7 @@ sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "chr
 qdrant-client = "1.11"
 # Document processing
 lopdf = "0.30"
+pdf-extract = "0.7"
 zip = "0.6"
 walkdir = "2.4"
 mime_guess = "2.0"

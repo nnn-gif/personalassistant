@@ -35,10 +35,13 @@ export default function DocumentChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [goals, setGoals] = useState<Goal[]>([])
   const [selectedGoal, setSelectedGoal] = useState<string>('')
+  const [selectedModel, setSelectedModel] = useState<string>('llama3.2:1b')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadGoals()
+    loadAvailableModels()
     // Add welcome message
     setMessages([{
       id: '1',
@@ -59,6 +62,26 @@ export default function DocumentChat() {
       setGoals(goalData)
     } catch (error) {
       console.error('Failed to load goals:', error)
+    }
+  }
+
+  const loadAvailableModels = async () => {
+    try {
+      const models = await invoke<string[]>('get_available_models')
+      setAvailableModels(models)
+      // Set first available model as default if current selection is not available
+      if (models.length > 0 && !models.includes(selectedModel)) {
+        setSelectedModel(models[0])
+      }
+    } catch (error) {
+      console.error('Failed to load available models:', error)
+      // Fallback to default models if API call fails
+      setAvailableModels([
+        'llama3.2:1b', 'llama3.2:3b', 'llama3.1:8b', 'llama3.1:70b',
+        'qwen2.5:1.5b', 'qwen2.5:3b', 'qwen2.5:7b',
+        'gemma2:2b', 'gemma2:9b', 'phi3.5:3.8b',
+        'codellama:7b', 'codellama:13b', 'mistral:7b', 'mixtral:8x7b'
+      ])
     }
   }
 
@@ -84,7 +107,8 @@ export default function DocumentChat() {
       const response = await invoke<ChatResponse>('chat_with_documents', {
         query: inputMessage,
         goalId: selectedGoal || null,
-        limit: 5
+        limit: 5,
+        model: selectedModel || null
       })
 
       const assistantMessage: ChatMessage = {
@@ -130,6 +154,16 @@ export default function DocumentChat() {
           </div>
           
           <div className="flex items-center space-x-4">
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="px-3 py-1 bg-dark-bg border border-dark-border rounded text-white text-sm"
+            >
+              {availableModels.map(model => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+            
             <select
               value={selectedGoal}
               onChange={(e) => setSelectedGoal(e.target.value)}
@@ -257,8 +291,13 @@ export default function DocumentChat() {
           </motion.button>
         </div>
         
-        <div className="text-xs text-gray-500 mt-2">
-          {selectedGoal ? `Searching in goal: ${goals.find(g => g.id === selectedGoal)?.name}` : 'Searching all documents'}
+        <div className="text-xs text-gray-500 mt-2 flex items-center justify-between">
+          <span>
+            {selectedGoal ? `Searching in goal: ${goals.find(g => g.id === selectedGoal)?.name}` : 'Searching all documents'}
+          </span>
+          <span>
+            Model: {selectedModel}
+          </span>
         </div>
       </div>
     </div>

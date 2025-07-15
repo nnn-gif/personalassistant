@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -257,7 +257,7 @@ export default function DocumentManager() {
   }
 
   const indexMultipleFiles = async (filePaths: string[]) => {
-    const taskId = `batch_${Date.now()}`
+    // const taskId = `batch_${Date.now()}`
     
     try {
       // For now, index files one by one with async calls
@@ -346,6 +346,31 @@ export default function DocumentManager() {
     }
   }
 
+  const clearVectorDatabase = async () => {
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      'Are you sure you want to clear the ENTIRE vector database? This action cannot be undone and will remove ALL indexed documents and their chunks.'
+    )
+    
+    if (!confirmed) return
+    
+    try {
+      console.log('Clearing vector database...')
+      const result = await invoke('clear_vector_database') as any
+      console.log(`Cleared vector database: ${result.removed_count}/${result.total_documents} documents removed`)
+      
+      if (result.failed_removals && result.failed_removals.length > 0) {
+        console.warn('Some documents failed to remove:', result.failed_removals)
+      }
+      
+      alert(`Vector database cleared successfully!\n\nRemoved: ${result.removed_count}/${result.total_documents} documents${result.failed_removals?.length > 0 ? `\nFailed: ${result.failed_removals.length}` : ''}`)
+      await loadIndexedDocuments() // Refresh the list
+    } catch (error) {
+      console.error('Clear vector database failed:', error)
+      alert('Failed to clear vector database: ' + error)
+    }
+  }
+
   const filteredDocuments = indexedDocuments.filter(doc =>
     doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     doc.file_path.toLowerCase().includes(searchQuery.toLowerCase())
@@ -410,6 +435,13 @@ export default function DocumentManager() {
           className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
         >
           Clean Corrupted
+        </button>
+
+        <button
+          onClick={clearVectorDatabase}
+          className="px-4 py-2 bg-red-800 text-white rounded-lg hover:bg-red-900 border border-red-600"
+        >
+          Clear All DB
         </button>
       </div>
 

@@ -221,6 +221,7 @@ fn main() {
             services::llm::get_productivity_score,
             services::llm::get_recommendations,
             services::llm::chat_with_documents,
+            services::llm::get_available_models,
             
             // Embedding commands
             services::embeddings::test_embeddings,
@@ -255,8 +256,10 @@ fn main() {
             services::rag::update_document_index,
             services::rag::get_supported_file_types,
             services::rag::check_file_supported,
+            services::rag::get_enhanced_file_info,
             services::rag::inspect_rag_database,
             services::rag::cleanup_corrupted_documents,
+            services::rag::clear_vector_database,
             
             // File manager commands
             services::file_manager::scan_folder_for_documents,

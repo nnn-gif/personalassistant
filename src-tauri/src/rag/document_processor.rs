@@ -94,6 +94,7 @@ impl DocumentProcessor {
         // Extract text from each page
         for page_num in 1..=doc.get_pages().len() {
             if let Ok(page_text) = doc.extract_text(&[page_num as u32]) {
+                println!("Extracted text from page {}: {}", page_num, page_text);
                 text.push_str(&page_text);
                 text.push('\n');
             }

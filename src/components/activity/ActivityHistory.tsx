@@ -71,7 +71,7 @@ export default function ActivityHistory() {
                 <div className="flex items-center space-x-2">
                   <p className="font-medium">{activity.app_usage.app_name}</p>
                   {activity.goal_id && (
-                    <Target className="w-3 h-3 text-success" title="Goal tracked" />
+                    <Target className="w-3 h-3 text-success" />
                   )}
                 </div>
                 <p className="text-sm text-gray-400 truncate" title={activity.app_usage.window_title}>
