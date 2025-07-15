@@ -1,11 +1,11 @@
 use crate::error::Result;
-use std::path::Path;
-use walkdir::WalkDir;
 use mime_guess::MimeGuess;
-use tauri::State;
+use std::path::Path;
 use std::sync::Arc;
+use tauri::State;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 #[tauri::command]
 pub async fn scan_folder_for_documents(
@@ -20,7 +20,7 @@ pub async fn scan_folder_for_documents(
 
     let include_subdirs = include_subdirs.unwrap_or(true);
     let max_depth = max_depth.unwrap_or(10);
-    
+
     let processor = crate::rag::DocumentProcessor::new();
     let mut document_files = Vec::new();
 
@@ -32,7 +32,7 @@ pub async fn scan_folder_for_documents(
 
     for entry in walker.into_iter().filter_map(|e| e.ok()) {
         let file_path = entry.path();
-        
+
         if file_path.is_file() {
             if let Some(path_str) = file_path.to_str() {
                 if processor.is_supported_file(path_str) {
@@ -53,28 +53,34 @@ pub async fn get_file_info(file_path: String) -> std::result::Result<FileInfo, S
     }
 
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
-    let file_name = path.file_name()
+    let file_name = path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();
 
     let mime_type = MimeGuess::from_path(path).first_or_octet_stream();
-    let file_extension = path.extension()
+    let file_extension = path
+        .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_string();
 
     let is_supported = crate::rag::DocumentProcessor::new().is_supported_file(&file_path);
-    
+
     Ok(FileInfo {
         name: file_name,
         path: file_path,
         size: metadata.len(),
         mime_type: mime_type.to_string(),
         extension: file_extension,
-        modified: metadata.modified()
-            .map(|time| time.duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default().as_secs())
+        modified: metadata
+            .modified()
+            .map(|time| {
+                time.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            })
             .unwrap_or(0),
         is_supported,
     })
@@ -116,7 +122,7 @@ pub async fn index_multiple_documents(
     }
 
     let total_processed = successful.len() + failed.len();
-    
+
     Ok(IndexingResult {
         successful,
         failed,
@@ -130,15 +136,15 @@ pub async fn get_folder_stats(
     include_subdirs: Option<bool>,
 ) -> std::result::Result<FolderStats, String> {
     let files = scan_folder_for_documents(folder_path.clone(), include_subdirs, Some(10)).await?;
-    
+
     let mut total_size = 0u64;
     let mut file_types = std::collections::HashMap::new();
-    
+
     for file_path in &files {
         if let Ok(metadata) = std::fs::metadata(file_path) {
             total_size += metadata.len();
         }
-        
+
         if let Some(extension) = Path::new(file_path).extension().and_then(|e| e.to_str()) {
             *file_types.entry(extension.to_lowercase()).or_insert(0) += 1;
         }

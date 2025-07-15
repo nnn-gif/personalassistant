@@ -55,38 +55,43 @@ pub async fn chat_with_documents(
     let limit = limit.unwrap_or(5);
 
     println!("Starting document chat with query: {}", query);
-    
+
     // Get recent activity context
     let activity_context = {
         let tracker = activity_tracker.lock().await;
         tracker.get_recent_activities(10)
     };
-    
+
     // Search for relevant documents
     let rag = rag_system.lock().await;
     println!("Acquired RAG system lock, searching for documents...");
-    let search_results = rag.search(&query, goal_uuid, limit).await
-        .map_err(|e| {
-            eprintln!("Failed to search documents: {}", e);
-            format!("Search failed: {}", e)
-        })?;
-    
+    let search_results = rag.search(&query, goal_uuid, limit).await.map_err(|e| {
+        eprintln!("Failed to search documents: {}", e);
+        format!("Search failed: {}", e)
+    })?;
+
     println!("Found {} search results", search_results.len());
-    
+
     // Log search results for debugging
     for (i, result) in search_results.iter().enumerate() {
         println!("Search Result {}: (score: {:.3})", i + 1, result.score);
         println!("Document ID: {}", result.document_id);
-        println!("Content: {}", result.content.chars().take(200).collect::<String>());
+        println!(
+            "Content: {}",
+            result.content.chars().take(200).collect::<String>()
+        );
         if result.content.len() > 200 {
-            println!("... (truncated, full length: {} chars)", result.content.len());
+            println!(
+                "... (truncated, full length: {} chars)",
+                result.content.len()
+            );
         }
         println!("---");
     }
 
     // Build context from search results and recent activity
     let mut context = String::new();
-    
+
     // Add document context
     if !search_results.is_empty() {
         context.push_str("=== DOCUMENT CONTEXT ===\n");
@@ -98,18 +103,22 @@ pub async fn chat_with_documents(
             ));
         }
     }
-    
+
     // Add activity context
     if !activity_context.is_empty() {
         context.push_str("=== RECENT ACTIVITY CONTEXT ===\n");
         context.push_str("Your recent activities (last 10 activities):\n");
         for (i, activity) in activity_context.iter().enumerate() {
             let duration_str = if activity.duration_seconds >= 60 {
-                format!("{}m{}s", activity.duration_seconds / 60, activity.duration_seconds % 60)
+                format!(
+                    "{}m{}s",
+                    activity.duration_seconds / 60,
+                    activity.duration_seconds % 60
+                )
             } else {
                 format!("{}s", activity.duration_seconds)
             };
-            
+
             context.push_str(&format!(
                 "{}. {} - {} ({}) - Duration: {}\n",
                 i + 1,
@@ -149,20 +158,27 @@ pub async fn chat_with_documents(
         llm.send_request_with_model(&prompt, &model).await
     } else {
         llm.send_request(&prompt).await
-    }.map_err(|e| {
+    }
+    .map_err(|e| {
         eprintln!("LLM request failed: {}", e);
         format!("LLM error: {}", e)
     })?;
-    
-    println!("Received LLM response (length: {} chars)", response_text.len());
+
+    println!(
+        "Received LLM response (length: {} chars)",
+        response_text.len()
+    );
 
     Ok(ChatResponse {
         message: response_text,
-        sources: search_results.into_iter().map(|r| DocumentSource {
-            document_id: r.document_id.to_string(),
-            content: r.content,
-            score: r.score,
-        }).collect(),
+        sources: search_results
+            .into_iter()
+            .map(|r| DocumentSource {
+                document_id: r.document_id.to_string(),
+                content: r.content,
+                score: r.score,
+            })
+            .collect(),
         context_used: !context.is_empty(),
     })
 }

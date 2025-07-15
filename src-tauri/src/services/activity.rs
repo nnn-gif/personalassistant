@@ -20,22 +20,18 @@ pub async fn get_activity_history(
 ) -> Result<Vec<Activity>> {
     let tracker = tracker.lock().await;
     let limit = limit.unwrap_or(50);
-    
+
     Ok(tracker.get_recent_activities(limit))
 }
 
 #[tauri::command]
-pub async fn start_tracking(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
-) -> Result<()> {
+pub async fn start_tracking(tracker: State<'_, Arc<Mutex<ActivityTracker>>>) -> Result<()> {
     let mut tracker = tracker.lock().await;
     tracker.start_tracking().await
 }
 
 #[tauri::command]
-pub async fn stop_tracking(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
-) -> Result<()> {
+pub async fn stop_tracking(tracker: State<'_, Arc<Mutex<ActivityTracker>>>) -> Result<()> {
     let mut tracker = tracker.lock().await;
     tracker.stop_tracking().await
 }

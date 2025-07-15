@@ -14,7 +14,9 @@ pub async fn create_goal(
     allowed_apps: Vec<String>,
 ) -> Result<Goal> {
     let mut service = service.lock().await;
-    let goal = service.create_goal(name, target_duration_minutes, allowed_apps).await?;
+    let goal = service
+        .create_goal(name, target_duration_minutes, allowed_apps)
+        .await?;
     Ok(goal)
 }
 
@@ -39,9 +41,7 @@ pub async fn deactivate_goal(
 }
 
 #[tauri::command]
-pub async fn get_goals(
-    service: State<'_, Arc<Mutex<GoalService>>>,
-) -> Result<Vec<Goal>> {
+pub async fn get_goals(service: State<'_, Arc<Mutex<GoalService>>>) -> Result<Vec<Goal>> {
     let service = service.lock().await;
     Ok(service.get_all_goals().into_iter().cloned().collect())
 }

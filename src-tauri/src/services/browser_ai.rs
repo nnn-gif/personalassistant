@@ -1,7 +1,7 @@
 use crate::browser_ai::BrowserAIAgent;
+use crate::database::SqliteDatabase;
 use crate::error::Result;
 use crate::models::{ResearchTask, SavedResearchTask};
-use crate::database::SqliteDatabase;
 use chrono::Utc;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -21,14 +21,14 @@ pub async fn start_research(
     query: String,
 ) -> Result<Uuid> {
     println!("Starting research for query: {}", query);
-    
+
     let (tx, mut rx) = mpsc::channel(100);
-    
+
     let mut agent = agent.lock().await;
     let task_id = agent.start_research(query, tx).await?;
-    
+
     println!("Research task created with ID: {}", task_id);
-    
+
     // Spawn task to forward progress events to frontend
     tauri::async_runtime::spawn(async move {
         while let Some(progress) = rx.recv().await {
@@ -39,7 +39,7 @@ pub async fn start_research(
             }
         }
     });
-    
+
     Ok(task_id)
 }
 
@@ -61,17 +61,18 @@ pub async fn save_research(
     notes: Option<String>,
 ) -> Result<SavedResearchTask> {
     println!("save_research called with task_id: {}", task_id);
-    
+
     let agent = agent.lock().await;
-    let task = agent.get_task(&task_id)
+    let task = agent
+        .get_task(&task_id)
         .ok_or_else(|| {
             eprintln!("Research task not found: {}", task_id);
             crate::error::AppError::NotFound("Research task not found".into())
         })?
         .clone();
-    
+
     println!("Found research task: {}", task.query);
-    
+
     let saved_task = SavedResearchTask {
         id: Uuid::new_v4(),
         task,
@@ -79,9 +80,9 @@ pub async fn save_research(
         notes,
         saved_at: Utc::now(),
     };
-    
+
     println!("Saving research task with tags: {:?}", tags);
-    
+
     // Save to database
     let db = db.lock().await;
     match db.save_research(&saved_task).await {
@@ -102,21 +103,21 @@ pub async fn get_saved_research(
     search_query: Option<String>,
 ) -> Result<Vec<SavedResearchTask>> {
     println!("get_saved_research called with query: {:?}", search_query);
-    
+
     let db = db.lock().await;
-    
+
     let result = if let Some(_query) = search_query {
         // TODO: Implement search in SQLite
         db.get_all_research().await
     } else {
         db.get_all_research().await
     };
-    
+
     match &result {
         Ok(tasks) => println!("Found {} saved research tasks", tasks.len()),
         Err(e) => eprintln!("Error getting saved research: {}", e),
     }
-    
+
     result
 }
 

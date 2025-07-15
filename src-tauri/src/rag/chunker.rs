@@ -26,7 +26,7 @@ impl TextChunker {
         }
 
         let chunks = self.chunk_text_by_size(text);
-        
+
         if chunks.is_empty() {
             // If no chunks were created, return the original text as a single chunk
             Ok(vec![text.to_string()])
@@ -39,26 +39,26 @@ impl TextChunker {
         let mut chunks = Vec::new();
         let chars: Vec<char> = text.chars().collect();
         let total_len = chars.len();
-        
+
         if total_len <= self.chunk_size {
             return vec![text.to_string()];
         }
-        
+
         let mut start = 0;
-        
+
         while start < total_len {
             let end = std::cmp::min(start + self.chunk_size, total_len);
             let chunk: String = chars[start..end].iter().collect();
             chunks.push(chunk);
-            
+
             if end >= total_len {
                 break;
             }
-            
+
             // Move start position with overlap
             start = end.saturating_sub(self.overlap);
         }
-        
+
         chunks
     }
 
@@ -73,7 +73,8 @@ impl TextChunker {
         let target_chunk_size = 1000;
 
         for sentence in sentences {
-            if current_chunk.len() + sentence.len() > target_chunk_size && !current_chunk.is_empty() {
+            if current_chunk.len() + sentence.len() > target_chunk_size && !current_chunk.is_empty()
+            {
                 chunks.push(current_chunk.trim().to_string());
                 current_chunk = sentence;
             } else {
@@ -107,7 +108,9 @@ impl TextChunker {
                 continue;
             }
 
-            if current_chunk.len() + paragraph.len() > target_chunk_size && !current_chunk.is_empty() {
+            if current_chunk.len() + paragraph.len() > target_chunk_size
+                && !current_chunk.is_empty()
+            {
                 chunks.push(current_chunk.trim().to_string());
                 current_chunk = paragraph.to_string();
             } else {
@@ -133,7 +136,7 @@ impl TextChunker {
 
         for char in text.chars() {
             current_sentence.push(char);
-            
+
             if sentence_endings.contains(&char) {
                 let sentence = current_sentence.trim().to_string();
                 if !sentence.is_empty() {
@@ -151,26 +154,37 @@ impl TextChunker {
         sentences
     }
 
-    pub fn get_chunk_metadata(&self, chunk: &str, chunk_index: usize) -> std::collections::HashMap<String, String> {
+    pub fn get_chunk_metadata(
+        &self,
+        chunk: &str,
+        chunk_index: usize,
+    ) -> std::collections::HashMap<String, String> {
         let mut metadata = std::collections::HashMap::new();
-        
+
         metadata.insert("chunk_index".to_string(), chunk_index.to_string());
         metadata.insert("chunk_length".to_string(), chunk.len().to_string());
-        metadata.insert("word_count".to_string(), chunk.split_whitespace().count().to_string());
-        
+        metadata.insert(
+            "word_count".to_string(),
+            chunk.split_whitespace().count().to_string(),
+        );
+
         // Add some basic content analysis
         let line_count = chunk.lines().count();
         metadata.insert("line_count".to_string(), line_count.to_string());
-        
+
         // Check for code patterns
-        if chunk.contains("fn ") || chunk.contains("def ") || chunk.contains("function ") || chunk.contains("class ") {
+        if chunk.contains("fn ")
+            || chunk.contains("def ")
+            || chunk.contains("function ")
+            || chunk.contains("class ")
+        {
             metadata.insert("content_type".to_string(), "code".to_string());
         } else if chunk.contains("# ") || chunk.contains("## ") || chunk.contains("### ") {
             metadata.insert("content_type".to_string(), "markdown".to_string());
         } else {
             metadata.insert("content_type".to_string(), "text".to_string());
         }
-        
+
         metadata
     }
 }

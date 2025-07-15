@@ -1,16 +1,16 @@
+use super::{ChromeController, ScraperEngine};
 use crate::error::{AppError, Result};
-use crate::models::{
-    BrowserAIProgress, ResearchResult, ResearchSubtask, ResearchTask, SearchResult, TaskStatus,
-    SubtaskProgress, PhaseDetails,
-};
 use crate::llm::LlmClient;
-use super::{ScraperEngine, ChromeController};
+use crate::models::{
+    BrowserAIProgress, PhaseDetails, ResearchResult, ResearchSubtask, ResearchTask, SearchResult,
+    SubtaskProgress, TaskStatus,
+};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ResearchPlan {
@@ -37,17 +37,17 @@ impl BrowserAIAgent {
             llm_client: Arc::new(LlmClient::new()),
         }
     }
-    
+
     pub async fn start_research(
         &mut self,
         query: String,
         progress_sender: mpsc::Sender<BrowserAIProgress>,
     ) -> Result<Uuid> {
         println!("Agent: Starting research for: {}", query);
-        
+
         let task_id = Uuid::new_v4();
         let now = Utc::now();
-        
+
         let mut task = ResearchTask {
             id: task_id,
             query: query.clone(),
@@ -58,27 +58,29 @@ impl BrowserAIAgent {
             created_at: now,
             updated_at: now,
         };
-        
+
         // Step 1: Create research plan
         task.status = TaskStatus::SplittingTasks;
-        let _ = self.send_detailed_progress(
-            &task,
-            &progress_sender,
-            Some("Analyzing query and creating research plan...".to_string()),
-            Some(PhaseDetails {
-                phase: "Planning".to_string(),
-                details: "Breaking down your query into specific research topics".to_string(),
-                estimated_completion: None,
-            })
-        ).await;
-        
+        let _ = self
+            .send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some("Analyzing query and creating research plan...".to_string()),
+                Some(PhaseDetails {
+                    phase: "Planning".to_string(),
+                    details: "Breaking down your query into specific research topics".to_string(),
+                    estimated_completion: None,
+                }),
+            )
+            .await;
+
         println!("Agent: Creating research plan...");
         let plan = match self.create_research_plan(&query).await {
             Ok(p) => {
                 println!("Agent: Research plan created successfully");
                 println!("Plan: {:?}", p);
                 p
-            },
+            }
             Err(e) => {
                 println!("Agent: Error creating research plan: {}", e);
                 task.status = TaskStatus::Failed(format!("Failed to create plan: {}", e));
@@ -86,117 +88,145 @@ impl BrowserAIAgent {
                 return Err(e);
             }
         };
-        
+
         // Convert plan to subtasks
         let subtasks = self.plan_to_subtasks(&plan).await?;
         task.subtasks = subtasks;
-        
+
         // Send progress with created subtasks
-        let _ = self.send_detailed_progress(
-            &task,
-            &progress_sender,
-            Some(format!("Created {} research tasks", task.subtasks.len())),
-            Some(PhaseDetails {
-                phase: "Planning Complete".to_string(),
-                details: format!("Split research into {} focused queries", task.subtasks.len()),
-                estimated_completion: None,
-            })
-        ).await;
-        
+        let _ = self
+            .send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some(format!("Created {} research tasks", task.subtasks.len())),
+                Some(PhaseDetails {
+                    phase: "Planning Complete".to_string(),
+                    details: format!(
+                        "Split research into {} focused queries",
+                        task.subtasks.len()
+                    ),
+                    estimated_completion: None,
+                }),
+            )
+            .await;
+
         // Step 2: Execute searches
         task.status = TaskStatus::Searching;
-        let _ = self.send_detailed_progress(
-            &task,
-            &progress_sender,
-            Some("Starting web searches...".to_string()),
-            Some(PhaseDetails {
-                phase: "Searching".to_string(),
-                details: "Searching the web for relevant information".to_string(),
-                estimated_completion: None,
-            })
-        ).await;
-        
+        let _ = self
+            .send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some("Starting web searches...".to_string()),
+                Some(PhaseDetails {
+                    phase: "Searching".to_string(),
+                    details: "Searching the web for relevant information".to_string(),
+                    estimated_completion: None,
+                }),
+            )
+            .await;
+
         let total_subtasks = task.subtasks.len();
         for i in 0..total_subtasks {
             let subtask_query = task.subtasks[i].query.clone();
-            
+
             // Update progress for current search
-            let _ = self.send_detailed_progress(
-                &task,
-                &progress_sender,
-                Some(format!("Searching: {}", subtask_query)),
-                Some(PhaseDetails {
-                    phase: format!("Search {}/{}", i + 1, total_subtasks),
-                    details: format!("Finding sources for: {}", subtask_query),
-                    estimated_completion: None,
-                })
-            ).await;
-            
+            let _ = self
+                .send_detailed_progress(
+                    &task,
+                    &progress_sender,
+                    Some(format!("Searching: {}", subtask_query)),
+                    Some(PhaseDetails {
+                        phase: format!("Search {}/{}", i + 1, total_subtasks),
+                        details: format!("Finding sources for: {}", subtask_query),
+                        estimated_completion: None,
+                    }),
+                )
+                .await;
+
             let search_results = if plan.requires_browser {
                 self.search_with_browser(&subtask_query).await?
             } else {
                 self.search_web(&subtask_query).await?
             };
-            
+
             // Update the subtask with results
             task.subtasks[i].search_results = search_results.clone();
             task.subtasks[i].status = TaskStatus::Searching;
-            
+
             // Send progress after each search
-            let _ = self.send_detailed_progress(
-                &task,
-                &progress_sender,
-                Some(format!("Found {} results for: {}", search_results.len(), subtask_query)),
-                None
-            ).await;
+            let _ = self
+                .send_detailed_progress(
+                    &task,
+                    &progress_sender,
+                    Some(format!(
+                        "Found {} results for: {}",
+                        search_results.len(),
+                        subtask_query
+                    )),
+                    None,
+                )
+                .await;
         }
-        
+
         // Step 3: Intelligent scraping
         task.status = TaskStatus::Scraping;
-        let _ = self.send_detailed_progress(
-            &task,
-            &progress_sender,
-            Some("Starting content extraction...".to_string()),
-            Some(PhaseDetails {
-                phase: "Scraping".to_string(),
-                details: "Extracting and analyzing content from web pages".to_string(),
-                estimated_completion: None,
-            })
-        ).await;
-        
+        let _ = self
+            .send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some("Starting content extraction...".to_string()),
+                Some(PhaseDetails {
+                    phase: "Scraping".to_string(),
+                    details: "Extracting and analyzing content from web pages".to_string(),
+                    estimated_completion: None,
+                }),
+            )
+            .await;
+
         let mut results = Vec::new();
         let subtasks_count = task.subtasks.len();
-        
+
         for i in 0..subtasks_count {
             let subtask_id = task.subtasks[i].id;
             let subtask_query = task.subtasks[i].query.clone();
             let search_results = task.subtasks[i].search_results.clone();
-            
+
             // Update subtask status
             task.subtasks[i].status = TaskStatus::Scraping;
-            
-            let _ = self.send_detailed_progress(
-                &task,
-                &progress_sender,
-                Some(format!("Extracting content for: {}", subtask_query)),
-                None
-            ).await;
-            
-            // Prioritize top results
-            let top_results: Vec<_> = search_results.iter().take(3).collect();
-            
-            for (j, search_result) in top_results.iter().enumerate() {
-                let _ = self.send_detailed_progress(
+
+            let _ = self
+                .send_detailed_progress(
                     &task,
                     &progress_sender,
-                    Some(format!("Scraping: {} ({}/{})", search_result.title, j + 1, top_results.len())),
-                    None
-                ).await;
-                
+                    Some(format!("Extracting content for: {}", subtask_query)),
+                    None,
+                )
+                .await;
+
+            // Prioritize top results
+            let top_results: Vec<_> = search_results.iter().take(3).collect();
+
+            for (j, search_result) in top_results.iter().enumerate() {
+                let _ = self
+                    .send_detailed_progress(
+                        &task,
+                        &progress_sender,
+                        Some(format!(
+                            "Scraping: {} ({}/{})",
+                            search_result.title,
+                            j + 1,
+                            top_results.len()
+                        )),
+                        None,
+                    )
+                    .await;
+
                 if let Ok(content) = self.scraper.scrape_url(&search_result.url).await {
                     // Extract relevant content using LLM
-                    let extracted = self.extract_relevant_content(&content, &subtask_query).await?;
-                    
+                    let extracted = self
+                        .extract_relevant_content(&content, &subtask_query)
+                        .await?;
+
                     let result = ResearchResult {
                         id: Uuid::new_v4(),
                         subtask_id,
@@ -207,64 +237,77 @@ impl BrowserAIAgent {
                         scraped_at: Utc::now(),
                     };
                     results.push(result.clone());
-                    
+
                     // Update task with new result and send progress immediately
                     task.results = results.clone();
-                    let _ = self.send_detailed_progress(
-                        &task,
-                        &progress_sender,
-                        Some(format!("Found content: {}", result.title)),
-                        None
-                    ).await;
+                    let _ = self
+                        .send_detailed_progress(
+                            &task,
+                            &progress_sender,
+                            Some(format!("Found content: {}", result.title)),
+                            None,
+                        )
+                        .await;
                 }
             }
-            
+
             // Mark subtask as completed
             task.subtasks[i].status = TaskStatus::Completed;
         }
-        
+
         // Step 4: Synthesize results
         task.status = TaskStatus::Analyzing;
-        let _ = self.send_detailed_progress(
-            &task,
-            &progress_sender,
-            Some("Analyzing and synthesizing findings...".to_string()),
-            Some(PhaseDetails {
-                phase: "Analysis".to_string(),
-                details: format!("Analyzing {} research findings to create comprehensive conclusion", task.results.len()),
-                estimated_completion: None,
-            })
-        ).await;
-        
+        let _ = self
+            .send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some("Analyzing and synthesizing findings...".to_string()),
+                Some(PhaseDetails {
+                    phase: "Analysis".to_string(),
+                    details: format!(
+                        "Analyzing {} research findings to create comprehensive conclusion",
+                        task.results.len()
+                    ),
+                    estimated_completion: None,
+                }),
+            )
+            .await;
+
         let conclusion = self.synthesize_results(&task, &plan).await?;
         task.conclusion = Some(conclusion);
-        
+
         // Complete
         task.status = TaskStatus::Completed;
         task.updated_at = Utc::now();
-        let _ = self.send_detailed_progress(
-            &task,
-            &progress_sender,
-            Some("Research completed!".to_string()),
-            Some(PhaseDetails {
-                phase: "Complete".to_string(),
-                details: format!("Found {} results across {} research topics", task.results.len(), task.subtasks.len()),
-                estimated_completion: None,
-            })
-        ).await;
-        
+        let _ = self
+            .send_detailed_progress(
+                &task,
+                &progress_sender,
+                Some("Research completed!".to_string()),
+                Some(PhaseDetails {
+                    phase: "Complete".to_string(),
+                    details: format!(
+                        "Found {} results across {} research topics",
+                        task.results.len(),
+                        task.subtasks.len()
+                    ),
+                    estimated_completion: None,
+                }),
+            )
+            .await;
+
         self.active_tasks.insert(task_id, task);
         Ok(task_id)
     }
-    
+
     pub fn get_task(&self, task_id: &Uuid) -> Option<&ResearchTask> {
         self.active_tasks.get(task_id)
     }
-    
+
     pub fn get_all_tasks(&self) -> Vec<&ResearchTask> {
         self.active_tasks.values().collect()
     }
-    
+
     async fn create_research_plan(&self, query: &str) -> Result<ResearchPlan> {
         // Try to use LLM for intelligent planning
         let prompt = format!(
@@ -285,7 +328,7 @@ impl BrowserAIAgent {
             }}",
             query
         );
-        
+
         match self.llm_client.send_request(&prompt).await {
             Ok(response) => {
                 match serde_json::from_str::<ResearchPlan>(&self.extract_json(&response)?) {
@@ -302,7 +345,7 @@ impl BrowserAIAgent {
             }
         }
     }
-    
+
     fn create_fallback_plan(&self, query: &str) -> ResearchPlan {
         ResearchPlan {
             main_topic: query.to_string(),
@@ -320,10 +363,10 @@ impl BrowserAIAgent {
             requires_browser: false,
         }
     }
-    
+
     async fn plan_to_subtasks(&self, plan: &ResearchPlan) -> Result<Vec<ResearchSubtask>> {
         let mut subtasks = Vec::new();
-        
+
         for query in plan.search_queries.iter() {
             let subtask = ResearchSubtask {
                 id: Uuid::new_v4(),
@@ -333,37 +376,36 @@ impl BrowserAIAgent {
             };
             subtasks.push(subtask);
         }
-        
+
         Ok(subtasks)
     }
-    
+
     async fn search_with_browser(&self, query: &str) -> Result<Vec<SearchResult>> {
         // Open Chrome with search query
         self.chrome.search_google(query).await?;
-        
+
         // Wait a bit for page to load
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-        
+
         // Try to get search results from Chrome
         match self.chrome.get_search_results().await {
-            Ok(results) if !results.is_empty() => {
-                Ok(results.into_iter()
-                    .enumerate()
-                    .map(|(i, (url, title))| SearchResult {
-                        url,
-                        title,
-                        snippet: String::new(),
-                        relevance_score: 1.0 - (i as f32 * 0.05),
-                    })
-                    .collect())
-            }
+            Ok(results) if !results.is_empty() => Ok(results
+                .into_iter()
+                .enumerate()
+                .map(|(i, (url, title))| SearchResult {
+                    url,
+                    title,
+                    snippet: String::new(),
+                    relevance_score: 1.0 - (i as f32 * 0.05),
+                })
+                .collect()),
             _ => {
                 // Fallback to regular web search
                 self.search_web(query).await
             }
         }
     }
-    
+
     async fn extract_relevant_content(&self, content: &str, query: &str) -> Result<String> {
         let prompt = format!(
             "Extract the most relevant information from the following content for the query: '{}'\n\n\
@@ -373,7 +415,7 @@ impl BrowserAIAgent {
             query,
             content.chars().take(5000).collect::<String>()
         );
-        
+
         match self.llm_client.send_request(&prompt).await {
             Ok(extracted) => Ok(extracted),
             Err(_) => {
@@ -382,19 +424,19 @@ impl BrowserAIAgent {
             }
         }
     }
-    
+
     async fn synthesize_results(&self, task: &ResearchTask, plan: &ResearchPlan) -> Result<String> {
         let mut context = String::new();
-        
+
         context.push_str(&format!("Research Topic: {}\n", plan.main_topic));
         context.push_str(&format!("Category: {}\n\n", plan.category));
-        
+
         for result in &task.results {
             context.push_str(&format!("Source: {}\n", result.title));
             context.push_str(&format!("URL: {}\n", result.url));
             context.push_str(&format!("Content: {}\n\n", result.content));
         }
-        
+
         let prompt = format!(
             "Synthesize the following research results into a comprehensive conclusion:\n\n{}\n\n\
             Provide a well-structured summary that:\n\
@@ -404,7 +446,7 @@ impl BrowserAIAgent {
             4. Notes any gaps or areas needing further research",
             context, task.query
         );
-        
+
         match self.llm_client.send_request(&prompt).await {
             Ok(synthesis) => Ok(synthesis),
             Err(_) => {
@@ -412,9 +454,10 @@ impl BrowserAIAgent {
                 let fallback = format!(
                     "Research Summary for: {}\n\n\
                     Based on {} sources found:\n\n",
-                    task.query, task.results.len()
+                    task.query,
+                    task.results.len()
                 );
-                
+
                 let mut summary = fallback;
                 for (i, result) in task.results.iter().enumerate() {
                     summary.push_str(&format!(
@@ -425,50 +468,58 @@ impl BrowserAIAgent {
                         result.content.chars().take(200).collect::<String>()
                     ));
                 }
-                
+
                 Ok(summary)
             }
         }
     }
-    
+
     async fn search_web(&self, query: &str) -> Result<Vec<SearchResult>> {
         // Use DuckDuckGo HTML API
         let encoded_query = urlencoding::encode(query);
         let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
-        
-        let response = reqwest::get(&url).await
+
+        let response = reqwest::get(&url)
+            .await
             .map_err(|e| AppError::BrowserAI(format!("Search request failed: {}", e)))?;
-        
-        let html = response.text().await
+
+        let html = response
+            .text()
+            .await
             .map_err(|e| AppError::BrowserAI(format!("Failed to read search response: {}", e)))?;
-        
+
         // Parse search results from HTML
         let document = scraper::Html::parse_document(&html);
         let result_selector = scraper::Selector::parse(".result").unwrap();
         let title_selector = scraper::Selector::parse(".result__a").unwrap();
         let snippet_selector = scraper::Selector::parse(".result__snippet").unwrap();
-        
+
         let mut results = Vec::new();
-        
+
         for (i, result) in document.select(&result_selector).enumerate() {
-            if i >= 10 { break; } // Limit to 10 results
-            
-            let title = result.select(&title_selector)
+            if i >= 10 {
+                break;
+            } // Limit to 10 results
+
+            let title = result
+                .select(&title_selector)
                 .next()
                 .map(|el| el.text().collect::<String>())
                 .unwrap_or_default();
-            
-            let url = result.select(&title_selector)
+
+            let url = result
+                .select(&title_selector)
                 .next()
                 .and_then(|el| el.value().attr("href"))
                 .unwrap_or_default()
                 .to_string();
-            
-            let snippet = result.select(&snippet_selector)
+
+            let snippet = result
+                .select(&snippet_selector)
                 .next()
                 .map(|el| el.text().collect::<String>())
                 .unwrap_or_default();
-            
+
             if !url.is_empty() && !title.is_empty() {
                 results.push(SearchResult {
                     url: url.replace("//duckduckgo.com/l/?uddg=", ""),
@@ -478,22 +529,20 @@ impl BrowserAIAgent {
                 });
             }
         }
-        
+
         if results.is_empty() {
             // Fallback to mock results if parsing fails
-            results = vec![
-                SearchResult {
-                    url: format!("https://en.wikipedia.org/wiki/{}", query.replace(' ', "_")),
-                    title: format!("{} - Wikipedia", query),
-                    snippet: format!("Information about {}", query),
-                    relevance_score: 0.9,
-                },
-            ];
+            results = vec![SearchResult {
+                url: format!("https://en.wikipedia.org/wiki/{}", query.replace(' ', "_")),
+                title: format!("{} - Wikipedia", query),
+                snippet: format!("Information about {}", query),
+                relevance_score: 0.9,
+            }];
         }
-        
+
         Ok(results)
     }
-    
+
     fn extract_json(&self, text: &str) -> Result<String> {
         // Try to extract JSON from the response
         // LLMs sometimes wrap JSON in markdown code blocks
@@ -510,17 +559,17 @@ impl BrowserAIAgent {
         } else {
             text
         };
-        
+
         // Find JSON object in the text
         if let Some(start) = cleaned.find('{') {
             if let Some(end) = cleaned.rfind('}') {
                 return Ok(cleaned[start..=end].to_string());
             }
         }
-        
+
         Ok(cleaned.trim().to_string())
     }
-    
+
     async fn send_progress(
         &self,
         task: &ResearchTask,
@@ -536,10 +585,12 @@ impl BrowserAIAgent {
         current_operation: Option<String>,
         phase_details: Option<PhaseDetails>,
     ) -> Result<()> {
-        let completed_subtasks = task.subtasks.iter()
+        let completed_subtasks = task
+            .subtasks
+            .iter()
             .filter(|s| matches!(s.status, TaskStatus::Completed))
             .count();
-        
+
         let total_subtasks = task.subtasks.len();
         let percentage = if total_subtasks > 0 {
             (completed_subtasks as f32 / total_subtasks as f32) * 100.0
@@ -555,9 +606,13 @@ impl BrowserAIAgent {
         };
 
         // Create detailed subtask progress
-        let subtasks_progress: Vec<SubtaskProgress> = task.subtasks.iter()
+        let subtasks_progress: Vec<SubtaskProgress> = task
+            .subtasks
+            .iter()
             .map(|subtask| {
-                let results: Vec<ResearchResult> = task.results.iter()
+                let results: Vec<ResearchResult> = task
+                    .results
+                    .iter()
                     .filter(|r| r.subtask_id == subtask.id)
                     .cloned()
                     .collect();
@@ -573,7 +628,7 @@ impl BrowserAIAgent {
                 }
             })
             .collect();
-        
+
         let progress = BrowserAIProgress {
             task_id: task.id,
             status: task.status.clone(),
@@ -586,10 +641,12 @@ impl BrowserAIAgent {
             intermediate_results: task.results.clone(),
             phase_details,
         };
-        
-        sender.send(progress).await
+
+        sender
+            .send(progress)
+            .await
             .map_err(|_| AppError::BrowserAI("Failed to send progress".into()))?;
-        
+
         Ok(())
     }
 }

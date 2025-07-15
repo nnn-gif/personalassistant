@@ -1,9 +1,9 @@
-pub mod recorder;
 pub mod processor;
-pub mod transcriber;
+pub mod recorder;
 pub mod simple_recorder;
+pub mod transcriber;
 
-pub use recorder::{AudioRecorder, RecordingStatus, AudioDevice};
 pub use processor::AudioProcessor;
+pub use recorder::{AudioDevice, AudioRecorder, RecordingStatus};
+pub use simple_recorder::{AudioRecording, RecordingInfo, SimpleAudioRecorder};
 pub use transcriber::AudioTranscriber;
-pub use simple_recorder::{SimpleAudioRecorder, RecordingInfo, AudioRecording};

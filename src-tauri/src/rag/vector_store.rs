@@ -1,10 +1,10 @@
+use crate::database::SqliteDatabase;
 use crate::error::{AppError, Result};
 use crate::rag::{Document, DocumentChunk, SearchResult};
-use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, Mutex};
-use crate::database::SqliteDatabase;
+use tokio::sync::{Mutex, RwLock};
+use uuid::Uuid;
 
 // Hybrid vector store with in-memory cache and database persistence
 pub struct VectorStore {
@@ -23,44 +23,51 @@ impl VectorStore {
             database: None,
         })
     }
-    
+
     pub fn set_database(&mut self, database: Arc<Mutex<SqliteDatabase>>) {
         self.database = Some(database);
     }
-    
+
     pub async fn load_from_database(&self) -> Result<()> {
         if let Some(db) = &self.database {
             let database = db.lock().await;
             let documents = database.load_documents(None).await?;
-            
+
             let mut doc_store = self.documents.write().await;
             let mut chunk_store = self.chunks.write().await;
             let mut goal_index = self.goal_index.write().await;
-            
+
             for document in documents {
                 // Store document chunks
                 for chunk in &document.chunks {
                     chunk_store.insert(chunk.id, chunk.clone());
                 }
-                
+
                 // Update goal index
                 if let Some(goal_id) = document.goal_id {
-                    goal_index.entry(goal_id).or_insert_with(Vec::new).push(document.id);
+                    goal_index
+                        .entry(goal_id)
+                        .or_insert_with(Vec::new)
+                        .push(document.id);
                 }
-                
+
                 // Store document (without chunks to avoid duplication)
                 let mut doc_for_store = document.clone();
                 doc_for_store.chunks = Vec::new();
                 doc_store.insert(document.id, doc_for_store);
             }
-            
+
             println!("Loaded {} documents from database", doc_store.len());
         }
-        
+
         Ok(())
     }
 
-    pub async fn store_document(&self, document: &Document, chunks: &[DocumentChunk]) -> Result<()> {
+    pub async fn store_document(
+        &self,
+        document: &Document,
+        chunks: &[DocumentChunk],
+    ) -> Result<()> {
         // Save to database first
         if let Some(db) = &self.database {
             let database = db.lock().await;
@@ -69,7 +76,7 @@ impl VectorStore {
                 database.save_document_chunk(chunk).await?;
             }
         }
-        
+
         // Update in-memory cache
         let mut documents = self.documents.write().await;
         let mut chunks_store = self.chunks.write().await;
@@ -87,7 +94,8 @@ impl VectorStore {
 
         // Update goal index
         if let Some(goal_id) = document.goal_id {
-            goal_index.entry(goal_id)
+            goal_index
+                .entry(goal_id)
                 .or_insert_with(Vec::new)
                 .push(document.id);
         }
@@ -95,10 +103,15 @@ impl VectorStore {
         Ok(())
     }
 
-    pub async fn search_similar(&self, query_embedding: &[f32], goal_id: Option<Uuid>, limit: usize) -> Result<Vec<SearchResult>> {
+    pub async fn search_similar(
+        &self,
+        query_embedding: &[f32],
+        goal_id: Option<Uuid>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let chunks = self.chunks.read().await;
         let documents = self.documents.read().await;
-        
+
         let mut results = Vec::new();
 
         for chunk in chunks.values() {
@@ -115,7 +128,7 @@ impl VectorStore {
 
             // Calculate similarity (cosine similarity)
             let similarity = self.cosine_similarity(query_embedding, &chunk.embedding);
-            
+
             let result = SearchResult {
                 document_id: chunk.document_id,
                 chunk_id: chunk.id,
@@ -128,17 +141,25 @@ impl VectorStore {
         }
 
         // Sort by similarity score (descending)
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Return top results
         results.truncate(limit);
         Ok(results)
     }
 
-    pub async fn get_goal_documents(&self, goal_id: Uuid, limit: usize) -> Result<Vec<SearchResult>> {
+    pub async fn get_goal_documents(
+        &self,
+        goal_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let documents = self.documents.read().await;
         let chunks = self.chunks.read().await;
-        
+
         let mut results = Vec::new();
 
         for document in documents.values() {
@@ -161,10 +182,14 @@ impl VectorStore {
 
         // Sort by chunk index for consistent ordering
         results.sort_by(|a, b| {
-            let a_index = a.metadata.get("chunk_index")
+            let a_index = a
+                .metadata
+                .get("chunk_index")
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(0);
-            let b_index = b.metadata.get("chunk_index")
+            let b_index = b
+                .metadata
+                .get("chunk_index")
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(0);
             a_index.cmp(&b_index)
@@ -180,7 +205,7 @@ impl VectorStore {
             let database = db.lock().await;
             database.delete_document(document_id).await?;
         }
-        
+
         // Update in-memory cache
         let mut documents = self.documents.write().await;
         let mut chunks = self.chunks.write().await;
@@ -208,15 +233,16 @@ impl VectorStore {
     pub async fn list_documents(&self, goal_id: Option<Uuid>) -> Result<Vec<Document>> {
         let documents = self.documents.read().await;
         let chunks = self.chunks.read().await;
-        
+
         let mut result = Vec::new();
-        
+
         for document in documents.values() {
             if let Some(goal_id) = goal_id {
                 if document.goal_id == Some(goal_id) {
                     let mut doc_with_chunks = document.clone();
                     // Find and populate chunks for this document
-                    doc_with_chunks.chunks = chunks.values()
+                    doc_with_chunks.chunks = chunks
+                        .values()
                         .filter(|chunk| chunk.document_id == document.id)
                         .cloned()
                         .collect();
@@ -225,7 +251,8 @@ impl VectorStore {
             } else {
                 let mut doc_with_chunks = document.clone();
                 // Find and populate chunks for this document
-                doc_with_chunks.chunks = chunks.values()
+                doc_with_chunks.chunks = chunks
+                    .values()
                     .filter(|chunk| chunk.document_id == document.id)
                     .cloned()
                     .collect();
@@ -246,7 +273,7 @@ impl VectorStore {
 
     pub async fn get_document_chunks(&self, document_id: Uuid) -> Result<Vec<DocumentChunk>> {
         let chunks = self.chunks.read().await;
-        
+
         let mut result = Vec::new();
         for chunk in chunks.values() {
             if chunk.document_id == document_id {

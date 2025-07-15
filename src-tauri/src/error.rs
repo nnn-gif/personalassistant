@@ -4,55 +4,55 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Database error: {0}")]
     Database(String),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("HTTP request error: {0}")]
     Http(#[from] reqwest::Error),
-    
+
     #[error("LLM error: {0}")]
     Llm(String),
-    
+
     #[error("Browser AI error: {0}")]
     BrowserAI(String),
-    
+
     #[error("Activity tracking error: {0}")]
     ActivityTracking(String),
-    
+
     #[error("Goal error: {0}")]
     Goal(String),
-    
+
     #[error("Platform error: {0}")]
     Platform(String),
-    
+
     #[error("Configuration error: {0}")]
     Configuration(String),
-    
+
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-    
+
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Storage error: {0}")]
     Storage(String),
-    
+
     #[error("Audio error: {0}")]
     Audio(String),
-    
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
-    
+
     #[error("Processing error: {0}")]
     ProcessingError(String),
-    
+
     #[error("Vector store error: {0}")]
     VectorStore(String),
-    
+
     #[error("Generic error: {0}")]
     Generic(#[from] anyhow::Error),
 }

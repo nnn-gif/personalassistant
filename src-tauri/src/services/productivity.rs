@@ -1,10 +1,10 @@
 use crate::activity_tracking::ActivityTracker;
 use crate::error::Result;
 use crate::models::AppCategory;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductivityTrend {
@@ -29,9 +29,9 @@ pub async fn get_productivity_trend(
 ) -> Result<Vec<ProductivityTrend>> {
     let tracker = tracker.lock().await;
     let hours = hours.unwrap_or(24);
-    
+
     let mut trends = Vec::new();
-    
+
     // Get productivity stats for each hour
     for h in 0..hours {
         let (productive_seconds, total_seconds) = tracker.get_productivity_stats(h + 1);
@@ -47,16 +47,16 @@ pub async fn get_productivity_trend(
         } else {
             0
         };
-        
+
         let hour_productive = productive_seconds.saturating_sub(prev_productive);
         let hour_total = total_seconds.saturating_sub(prev_total);
-        
+
         let percentage = if hour_total > 0 {
             (hour_productive as f32 / hour_total as f32) * 100.0
         } else {
             0.0
         };
-        
+
         trends.push(ProductivityTrend {
             hour: hours - h - 1,
             productive_minutes: hour_productive / 60,
@@ -64,7 +64,7 @@ pub async fn get_productivity_trend(
             productivity_percentage: percentage,
         });
     }
-    
+
     trends.reverse();
     Ok(trends)
 }
@@ -76,12 +76,12 @@ pub async fn get_app_usage_stats(
 ) -> Result<Vec<AppUsageStats>> {
     let tracker = tracker.lock().await;
     let hours = hours.unwrap_or(24);
-    
+
     let history = tracker.get_history();
     let stats = history.get_app_usage_stats(hours);
-    
+
     let mut app_stats = Vec::new();
-    
+
     for (app_name, seconds) in stats {
         // Get category from recent activity
         let recent_activities = tracker.get_recent_activities(100);
@@ -90,12 +90,12 @@ pub async fn get_app_usage_stats(
             .find(|a| a.app_usage.app_name == app_name)
             .map(|a| a.app_usage.category.clone())
             .unwrap_or(AppCategory::Other);
-        
+
         let is_productive = matches!(
             category,
             AppCategory::Development | AppCategory::Productivity | AppCategory::Communication
         );
-        
+
         app_stats.push(AppUsageStats {
             app_name,
             category,
@@ -103,7 +103,7 @@ pub async fn get_app_usage_stats(
             is_productive,
         });
     }
-    
+
     Ok(app_stats)
 }
 
@@ -113,7 +113,7 @@ pub async fn get_current_productivity_score(
 ) -> Result<f32> {
     let tracker = tracker.lock().await;
     let (productive, total) = tracker.get_productivity_stats(1); // Last hour
-    
+
     if total > 0 {
         Ok((productive as f32 / total as f32) * 100.0)
     } else {

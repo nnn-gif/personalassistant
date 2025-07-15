@@ -1,10 +1,10 @@
 use crate::error::{AppError, Result};
-use crate::models::{Activity, Goal, SavedResearchTask, ResearchTask};
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions, Row};
-use std::path::PathBuf;
-use dirs::data_dir;
-use uuid::Uuid;
+use crate::models::{Activity, Goal, ResearchTask, SavedResearchTask};
 use chrono::{DateTime, Utc};
+use dirs::data_dir;
+use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
+use std::path::PathBuf;
+use uuid::Uuid;
 
 pub struct SqliteDatabase {
     pool: SqlitePool,
@@ -13,36 +13,38 @@ pub struct SqliteDatabase {
 impl SqliteDatabase {
     pub async fn new() -> Result<Self> {
         let db_path = Self::get_db_path()?;
-        
+
         // Ensure directory exists
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Database(format!("Failed to create database directory: {}", e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AppError::Database(format!("Failed to create database directory: {}", e))
+            })?;
         }
-        
+
         let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-        
+
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect(&db_url)
             .await
             .map_err(|e| AppError::Database(format!("Failed to connect to database: {}", e)))?;
-        
+
         let db = Self { pool };
         db.create_tables().await?;
-        
+
         Ok(db)
     }
-    
+
     fn get_db_path() -> Result<PathBuf> {
         let data_dir = data_dir()
             .ok_or_else(|| AppError::Database("Could not find data directory".to_string()))?;
         Ok(data_dir.join("personalassistant").join("database.db"))
     }
-    
+
     async fn create_tables(&self) -> Result<()> {
         // Goals table
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS goals (
                 id TEXT PRIMARY KEY NOT NULL,
                 name TEXT NOT NULL,
@@ -55,19 +57,21 @@ impl SqliteDatabase {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
-        "#)
+        "#,
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to create goals table: {}", e)))?;
-        
+
         // Add seconds column to existing goals table if it doesn't exist
         sqlx::query("ALTER TABLE goals ADD COLUMN time_spent_seconds INTEGER DEFAULT 0")
             .execute(&self.pool)
             .await
             .ok(); // Ignore error if column already exists
-        
+
         // Activities table
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS activities (
                 id TEXT PRIMARY KEY NOT NULL,
                 timestamp TEXT NOT NULL,
@@ -84,24 +88,26 @@ impl SqliteDatabase {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE SET NULL
             )
-        "#)
+        "#,
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to create activities table: {}", e)))?;
-        
+
         // Create index for better query performance
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_activities_timestamp ON activities(timestamp)")
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to create activities index: {}", e)))?;
-        
+
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_activities_goal_id ON activities(goal_id)")
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to create goal_id index: {}", e)))?;
-        
+
         // Research tasks table
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS research_tasks (
                 id TEXT PRIMARY KEY NOT NULL,
                 task_id TEXT NOT NULL,
@@ -111,13 +117,15 @@ impl SqliteDatabase {
                 saved_at TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
-        "#)
+        "#,
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to create research_tasks table: {}", e)))?;
-        
+
         // Audio recordings metadata table
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS audio_recordings (
                 id TEXT PRIMARY KEY NOT NULL,
                 title TEXT NOT NULL,
@@ -131,13 +139,17 @@ impl SqliteDatabase {
                 ended_at TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
-        "#)
+        "#,
+        )
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Database(format!("Failed to create audio_recordings table: {}", e)))?;
-        
+        .map_err(|e| {
+            AppError::Database(format!("Failed to create audio_recordings table: {}", e))
+        })?;
+
         // Documents table for RAG system
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY NOT NULL,
                 title TEXT NOT NULL,
@@ -147,13 +159,15 @@ impl SqliteDatabase {
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE SET NULL
             )
-        "#)
+        "#,
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to create documents table: {}", e)))?;
-        
+
         // Document chunks table for RAG system
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS document_chunks (
                 id TEXT PRIMARY KEY NOT NULL,
                 document_id TEXT NOT NULL,
@@ -163,30 +177,39 @@ impl SqliteDatabase {
                 metadata TEXT NOT NULL,
                 FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
             )
-        "#)
+        "#,
+        )
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Database(format!("Failed to create document_chunks table: {}", e)))?;
-        
+        .map_err(|e| {
+            AppError::Database(format!("Failed to create document_chunks table: {}", e))
+        })?;
+
         // Create indices for better query performance
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_documents_goal_id ON documents(goal_id)")
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Database(format!("Failed to create documents goal_id index: {}", e)))?;
-            
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON document_chunks(document_id)")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::Database(format!("Failed to create chunks document_id index: {}", e)))?;
-        
+            .map_err(|e| {
+                AppError::Database(format!("Failed to create documents goal_id index: {}", e))
+            })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON document_chunks(document_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::Database(format!("Failed to create chunks document_id index: {}", e))
+        })?;
+
         Ok(())
     }
-    
+
     // Goals operations
     pub async fn save_goal(&self, goal: &Goal) -> Result<()> {
         let allowed_apps_json = serde_json::to_string(&goal.allowed_apps)
             .map_err(|e| AppError::Database(format!("Failed to serialize allowed_apps: {}", e)))?;
-        
+
         sqlx::query(r#"
             INSERT INTO goals (id, name, duration_minutes, allowed_apps, progress_percentage, 
                              time_spent_minutes, time_spent_seconds, is_active, created_at, updated_at)
@@ -214,10 +237,10 @@ impl SqliteDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to save goal: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     pub async fn get_all_goals(&self) -> Result<Vec<Goal>> {
         let rows = sqlx::query(
             "SELECT id, name, duration_minutes, allowed_apps, progress_percentage, time_spent_minutes, time_spent_seconds, is_active, created_at, updated_at FROM goals ORDER BY created_at DESC"
@@ -225,20 +248,25 @@ impl SqliteDatabase {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to fetch goals: {}", e)))?;
-        
+
         let mut goals = Vec::new();
         for row in rows {
-            let allowed_apps: Vec<String> = serde_json::from_str(&row.get::<String, _>("allowed_apps"))
-                .map_err(|e| AppError::Database(format!("Failed to parse allowed_apps: {}", e)))?;
-            
+            let allowed_apps: Vec<String> =
+                serde_json::from_str(&row.get::<String, _>("allowed_apps")).map_err(|e| {
+                    AppError::Database(format!("Failed to parse allowed_apps: {}", e))
+                })?;
+
             goals.push(Goal {
                 id: Uuid::parse_str(&row.get::<String, _>("id"))
                     .map_err(|e| AppError::Database(format!("Invalid UUID: {}", e)))?,
                 name: row.get("name"),
-                target_duration_minutes: row.get::<Option<i32>, _>("duration_minutes").unwrap_or(0) as u32,
+                target_duration_minutes: row.get::<Option<i32>, _>("duration_minutes").unwrap_or(0)
+                    as u32,
                 allowed_apps,
                 current_duration_minutes: row.get::<i32, _>("time_spent_minutes") as u32,
-                current_duration_seconds: row.get::<Option<i32>, _>("time_spent_seconds").unwrap_or(0) as u32,
+                current_duration_seconds: row
+                    .get::<Option<i32>, _>("time_spent_seconds")
+                    .unwrap_or(0) as u32,
                 is_active: row.get("is_active"),
                 created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
                     .map_err(|e| AppError::Database(format!("Invalid created_at date: {}", e)))?
@@ -248,28 +276,30 @@ impl SqliteDatabase {
                     .with_timezone(&Utc),
             });
         }
-        
+
         Ok(goals)
     }
-    
+
     pub async fn delete_goal(&self, goal_id: &Uuid) -> Result<()> {
         sqlx::query("DELETE FROM goals WHERE id = ?")
             .bind(goal_id.to_string())
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to delete goal: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     // Activities operations
     pub async fn save_activity(&self, activity: &Activity) -> Result<()> {
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             INSERT INTO activities (id, timestamp, duration_seconds, app_name, window_title,
                                   category, is_productive, keystrokes, mouse_clicks, 
                                   mouse_distance_pixels, goal_id, project_name)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-        "#)
+        "#,
+        )
         .bind(activity.id.to_string())
         .bind(activity.timestamp.to_rfc3339())
         .bind(activity.duration_seconds)
@@ -281,14 +311,19 @@ impl SqliteDatabase {
         .bind(activity.input_metrics.mouse_clicks as i32)
         .bind(activity.input_metrics.mouse_distance_pixels)
         .bind(activity.goal_id.map(|id| id.to_string()))
-        .bind(activity.project_context.as_ref().map(|p| p.project_name.clone()))
+        .bind(
+            activity
+                .project_context
+                .as_ref()
+                .map(|p| p.project_name.clone()),
+        )
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to save activity: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     pub async fn get_recent_activities(&self, limit: i32) -> Result<Vec<Activity>> {
         let rows = sqlx::query(
             "SELECT id, timestamp, duration_seconds, app_name, window_title, category, is_productive, keystrokes, mouse_clicks, mouse_distance_pixels, goal_id, project_name FROM activities ORDER BY timestamp DESC LIMIT ?"
@@ -297,11 +332,13 @@ impl SqliteDatabase {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to fetch activities: {}", e)))?;
-        
+
         let mut activities = Vec::new();
         for row in rows {
-            use crate::models::{AppUsage, AppCategory, InputMetrics, SystemState, ProjectContext, ProjectType};
-            
+            use crate::models::{
+                AppCategory, AppUsage, InputMetrics, ProjectContext, ProjectType, SystemState,
+            };
+
             let category = match row.get::<String, _>("category").as_str() {
                 "Development" => AppCategory::Development,
                 "Communication" => AppCategory::Communication,
@@ -311,7 +348,7 @@ impl SqliteDatabase {
                 "System" => AppCategory::System,
                 _ => AppCategory::Other,
             };
-            
+
             activities.push(Activity {
                 id: Uuid::parse_str(&row.get::<String, _>("id"))
                     .map_err(|e| AppError::Database(format!("Invalid UUID: {}", e)))?,
@@ -343,23 +380,27 @@ impl SqliteDatabase {
                     cpu_usage_percent: 0.0,
                     memory_usage_mb: 0,
                 },
-                project_context: row.get::<Option<String>, _>("project_name").map(|name| ProjectContext {
-                    project_name: name,
-                    project_path: String::new(),
-                    project_type: ProjectType::Other("Unknown".to_string()),
-                    git_branch: None,
+                project_context: row.get::<Option<String>, _>("project_name").map(|name| {
+                    ProjectContext {
+                        project_name: name,
+                        project_path: String::new(),
+                        project_type: ProjectType::Other("Unknown".to_string()),
+                        git_branch: None,
+                    }
                 }),
-                goal_id: row.get::<Option<String>, _>("goal_id").and_then(|id| Uuid::parse_str(&id).ok()),
+                goal_id: row
+                    .get::<Option<String>, _>("goal_id")
+                    .and_then(|id| Uuid::parse_str(&id).ok()),
             });
         }
-        
+
         Ok(activities)
     }
-    
+
     pub async fn get_activities_by_date_range(
-        &self, 
-        start: DateTime<Utc>, 
-        end: DateTime<Utc>
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
     ) -> Result<Vec<Activity>> {
         let _rows = sqlx::query(
             "SELECT id, timestamp, duration_seconds, app_name, window_title, category, is_productive, keystrokes, mouse_clicks, mouse_distance_pixels, goal_id, project_name FROM activities WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC"
@@ -369,20 +410,21 @@ impl SqliteDatabase {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to fetch activities: {}", e)))?;
-        
+
         // Convert rows to activities using same logic as get_recent_activities
         // For now returning empty, but could implement full conversion
         Ok(vec![])
     }
-    
+
     // Research operations
     pub async fn save_research(&self, task: &SavedResearchTask) -> Result<()> {
         let task_data_json = serde_json::to_string(&task.task)
             .map_err(|e| AppError::Database(format!("Failed to serialize research task: {}", e)))?;
         let tags_json = serde_json::to_string(&task.tags)
             .map_err(|e| AppError::Database(format!("Failed to serialize tags: {}", e)))?;
-        
-        sqlx::query(r#"
+
+        sqlx::query(
+            r#"
             INSERT INTO research_tasks (id, task_id, task_data, tags, notes, saved_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(id) DO UPDATE SET
@@ -391,7 +433,8 @@ impl SqliteDatabase {
                 tags = excluded.tags,
                 notes = excluded.notes,
                 saved_at = excluded.saved_at
-        "#)
+        "#,
+        )
         .bind(task.id.to_string())
         .bind(task.task.id.to_string())
         .bind(task_data_json)
@@ -401,10 +444,10 @@ impl SqliteDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to save research: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     pub async fn get_all_research(&self) -> Result<Vec<SavedResearchTask>> {
         let rows = sqlx::query(
             "SELECT id, task_id, task_data, tags, notes, saved_at FROM research_tasks ORDER BY saved_at DESC"
@@ -412,14 +455,14 @@ impl SqliteDatabase {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to fetch research tasks: {}", e)))?;
-        
+
         let mut tasks = Vec::new();
         for row in rows {
             let task: ResearchTask = serde_json::from_str(&row.get::<String, _>("task_data"))
                 .map_err(|e| AppError::Database(format!("Failed to parse research task: {}", e)))?;
             let tags: Vec<String> = serde_json::from_str(&row.get::<String, _>("tags"))
                 .map_err(|e| AppError::Database(format!("Failed to parse tags: {}", e)))?;
-            
+
             tasks.push(SavedResearchTask {
                 id: Uuid::parse_str(&row.get::<String, _>("id"))
                     .map_err(|e| AppError::Database(format!("Invalid UUID: {}", e)))?,
@@ -431,20 +474,20 @@ impl SqliteDatabase {
                     .with_timezone(&Utc),
             });
         }
-        
+
         Ok(tasks)
     }
-    
+
     pub async fn delete_research(&self, id: &Uuid) -> Result<()> {
         sqlx::query("DELETE FROM research_tasks WHERE id = ?")
             .bind(id.to_string())
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to delete research: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     // Migration helper to import existing JSON data
     pub async fn import_from_storage(&self, storage: &crate::storage::LocalStorage) -> Result<()> {
         // Import goals
@@ -452,23 +495,25 @@ impl SqliteDatabase {
         for goal in goals {
             self.save_goal(&goal).await?;
         }
-        
+
         // Import research tasks
         let research_tasks = storage.get_saved_research(None)?;
         for task in research_tasks {
             self.save_research(&task).await?;
         }
-        
+
         println!("Successfully imported data from file storage to SQLite");
         Ok(())
     }
-    
+
     // Document operations for RAG system
     pub async fn save_document(&self, document: &crate::rag::Document) -> Result<()> {
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             INSERT OR REPLACE INTO documents (id, title, content, file_path, goal_id, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        "#)
+        "#,
+        )
         .bind(document.id.to_string())
         .bind(&document.title)
         .bind(&document.content)
@@ -478,16 +523,16 @@ impl SqliteDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to save document: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     pub async fn save_document_chunk(&self, chunk: &crate::rag::DocumentChunk) -> Result<()> {
         let embedding_json = serde_json::to_string(&chunk.embedding)
             .map_err(|e| AppError::Database(format!("Failed to serialize embedding: {}", e)))?;
         let metadata_json = serde_json::to_string(&chunk.metadata)
             .map_err(|e| AppError::Database(format!("Failed to serialize metadata: {}", e)))?;
-            
+
         sqlx::query(r#"
             INSERT OR REPLACE INTO document_chunks (id, document_id, content, embedding, chunk_index, metadata)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -501,10 +546,10 @@ impl SqliteDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Database(format!("Failed to save document chunk: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     pub async fn load_documents(&self, goal_id: Option<Uuid>) -> Result<Vec<crate::rag::Document>> {
         let rows = if let Some(goal_id) = goal_id {
             sqlx::query("SELECT id, title, content, file_path, goal_id, created_at FROM documents WHERE goal_id = ?")
@@ -516,30 +561,32 @@ impl SqliteDatabase {
                 .fetch_all(&self.pool)
                 .await
         }.map_err(|e| AppError::Database(format!("Failed to load documents: {}", e)))?;
-        
+
         let mut documents = Vec::new();
-        
+
         for row in rows {
             let document_id_str: String = row.get("id");
             let document_id = Uuid::parse_str(&document_id_str)
                 .map_err(|e| AppError::Database(format!("Invalid document ID: {}", e)))?;
-            
+
             let goal_id_str: Option<String> = row.get("goal_id");
             let goal_id = if let Some(goal_str) = goal_id_str {
-                Some(Uuid::parse_str(&goal_str)
-                    .map_err(|e| AppError::Database(format!("Invalid goal ID: {}", e)))?)
+                Some(
+                    Uuid::parse_str(&goal_str)
+                        .map_err(|e| AppError::Database(format!("Invalid goal ID: {}", e)))?,
+                )
             } else {
                 None
             };
-            
+
             let created_at_str: String = row.get("created_at");
             let created_at = DateTime::parse_from_rfc3339(&created_at_str)
                 .map_err(|e| AppError::Database(format!("Invalid created_at format: {}", e)))?
                 .with_timezone(&Utc);
-            
+
             // Load chunks for this document
             let chunks = self.load_document_chunks(document_id).await?;
-            
+
             let document = crate::rag::Document {
                 id: document_id,
                 title: row.get("title"),
@@ -549,35 +596,41 @@ impl SqliteDatabase {
                 chunks,
                 created_at,
             };
-            
+
             documents.push(document);
         }
-        
+
         Ok(documents)
     }
-    
-    pub async fn load_document_chunks(&self, document_id: Uuid) -> Result<Vec<crate::rag::DocumentChunk>> {
+
+    pub async fn load_document_chunks(
+        &self,
+        document_id: Uuid,
+    ) -> Result<Vec<crate::rag::DocumentChunk>> {
         let rows = sqlx::query("SELECT id, content, embedding, chunk_index, metadata FROM document_chunks WHERE document_id = ? ORDER BY chunk_index")
             .bind(document_id.to_string())
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to load document chunks: {}", e)))?;
-        
+
         let mut chunks = Vec::new();
-        
+
         for row in rows {
             let chunk_id_str: String = row.get("id");
             let chunk_id = Uuid::parse_str(&chunk_id_str)
                 .map_err(|e| AppError::Database(format!("Invalid chunk ID: {}", e)))?;
-            
+
             let embedding_json: String = row.get("embedding");
-            let embedding: Vec<f32> = serde_json::from_str(&embedding_json)
-                .map_err(|e| AppError::Database(format!("Failed to deserialize embedding: {}", e)))?;
-            
+            let embedding: Vec<f32> = serde_json::from_str(&embedding_json).map_err(|e| {
+                AppError::Database(format!("Failed to deserialize embedding: {}", e))
+            })?;
+
             let metadata_json: String = row.get("metadata");
-            let metadata: std::collections::HashMap<String, String> = serde_json::from_str(&metadata_json)
-                .map_err(|e| AppError::Database(format!("Failed to deserialize metadata: {}", e)))?;
-            
+            let metadata: std::collections::HashMap<String, String> =
+                serde_json::from_str(&metadata_json).map_err(|e| {
+                    AppError::Database(format!("Failed to deserialize metadata: {}", e))
+                })?;
+
             let chunk = crate::rag::DocumentChunk {
                 id: chunk_id,
                 document_id,
@@ -586,13 +639,13 @@ impl SqliteDatabase {
                 chunk_index: row.get::<i64, _>("chunk_index") as usize,
                 metadata,
             };
-            
+
             chunks.push(chunk);
         }
-        
+
         Ok(chunks)
     }
-    
+
     pub async fn delete_document(&self, document_id: Uuid) -> Result<()> {
         // Delete chunks first (due to foreign key constraint)
         sqlx::query("DELETE FROM document_chunks WHERE document_id = ?")
@@ -600,14 +653,14 @@ impl SqliteDatabase {
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to delete document chunks: {}", e)))?;
-        
+
         // Delete document
         sqlx::query("DELETE FROM documents WHERE id = ?")
             .bind(document_id.to_string())
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to delete document: {}", e)))?;
-        
+
         Ok(())
     }
 }

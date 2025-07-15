@@ -9,8 +9,12 @@ impl ProjectDetector {
     pub fn new() -> Self {
         Self
     }
-    
-    pub fn detect_project(&self, app_name: &str, window_title: &str) -> Result<Option<ProjectContext>> {
+
+    pub fn detect_project(
+        &self,
+        app_name: &str,
+        window_title: &str,
+    ) -> Result<Option<ProjectContext>> {
         if let Some(directory) = self.extract_directory(app_name, window_title) {
             if let Some(project_root) = self.find_project_root(&directory) {
                 let project_name = project_root
@@ -18,10 +22,10 @@ impl ProjectDetector {
                     .and_then(|n| n.to_str())
                     .unwrap_or("Unknown")
                     .to_string();
-                
+
                 let project_type = self.detect_project_type(&project_root);
                 let git_branch = self.get_git_branch(&project_root);
-                
+
                 return Ok(Some(ProjectContext {
                     project_name,
                     project_path: project_root.to_string_lossy().to_string(),
@@ -30,13 +34,13 @@ impl ProjectDetector {
                 }));
             }
         }
-        
+
         Ok(None)
     }
-    
+
     fn extract_directory(&self, app_name: &str, window_title: &str) -> Option<PathBuf> {
         let app_lower = app_name.to_lowercase();
-        
+
         // Terminal apps
         if app_lower.contains("terminal") || app_lower.contains("iterm") {
             self.get_terminal_directory(app_name)
@@ -48,7 +52,7 @@ impl ProjectDetector {
             None
         }
     }
-    
+
     fn get_terminal_directory(&self, app_name: &str) -> Option<PathBuf> {
         let script = match app_name.to_lowercase().as_str() {
             name if name.contains("terminal") => {
@@ -59,13 +63,13 @@ impl ProjectDetector {
             }
             _ => return None,
         };
-        
+
         let output = Command::new("osascript")
             .arg("-e")
             .arg(script)
             .output()
             .ok()?;
-        
+
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             Some(PathBuf::from(path))
@@ -73,7 +77,7 @@ impl ProjectDetector {
             None
         }
     }
-    
+
     fn extract_path_from_title(&self, window_title: &str) -> Option<PathBuf> {
         // Try to extract path from window title
         // This is a simplified version - real implementation would be more robust
@@ -85,20 +89,20 @@ impl ProjectDetector {
         }
         None
     }
-    
+
     fn find_project_root(&self, start_path: &Path) -> Option<PathBuf> {
         let mut current = start_path.to_path_buf();
-        
+
         while current.parent().is_some() {
             if self.is_project_root(&current) {
                 return Some(current);
             }
             current = current.parent()?.to_path_buf();
         }
-        
+
         None
     }
-    
+
     fn is_project_root(&self, path: &Path) -> bool {
         let indicators = [
             ".git",
@@ -111,10 +115,12 @@ impl ProjectDetector {
             "build.gradle",
             ".project",
         ];
-        
-        indicators.iter().any(|indicator| path.join(indicator).exists())
+
+        indicators
+            .iter()
+            .any(|indicator| path.join(indicator).exists())
     }
-    
+
     fn detect_project_type(&self, path: &Path) -> ProjectType {
         if path.join("Cargo.toml").exists() {
             ProjectType::Rust
@@ -136,7 +142,7 @@ impl ProjectDetector {
             ProjectType::Other("Unknown".to_string())
         }
     }
-    
+
     fn get_git_branch(&self, path: &Path) -> Option<String> {
         let output = Command::new("git")
             .arg("branch")
@@ -144,7 +150,7 @@ impl ProjectDetector {
             .current_dir(path)
             .output()
             .ok()?;
-        
+
         if output.status.success() {
             Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {

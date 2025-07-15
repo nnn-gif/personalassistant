@@ -11,21 +11,42 @@ impl DocumentRetriever {
         Self { vector_store }
     }
 
-    pub async fn search(&self, query_embedding: &[f32], goal_id: Option<Uuid>, limit: usize) -> Result<Vec<SearchResult>> {
-        self.vector_store.search_similar(query_embedding, goal_id, limit).await
+    pub async fn search(
+        &self,
+        query_embedding: &[f32],
+        goal_id: Option<Uuid>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        self.vector_store
+            .search_similar(query_embedding, goal_id, limit)
+            .await
     }
 
-    pub async fn get_goal_documents(&self, goal_id: Uuid, limit: usize) -> Result<Vec<SearchResult>> {
+    pub async fn get_goal_documents(
+        &self,
+        goal_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         self.vector_store.get_goal_documents(goal_id, limit).await
     }
 
-    pub async fn search_with_filters(&self, query_embedding: &[f32], filters: SearchFilters, limit: usize) -> Result<Vec<SearchResult>> {
-        let mut results = self.vector_store.search_similar(query_embedding, filters.goal_id, limit * 2).await?;
+    pub async fn search_with_filters(
+        &self,
+        query_embedding: &[f32],
+        filters: SearchFilters,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let mut results = self
+            .vector_store
+            .search_similar(query_embedding, filters.goal_id, limit * 2)
+            .await?;
 
         // Apply additional filters
         if let Some(content_type) = &filters.content_type {
             results.retain(|result| {
-                result.metadata.get("content_type")
+                result
+                    .metadata
+                    .get("content_type")
                     .map(|ct| ct == content_type)
                     .unwrap_or(false)
             });
@@ -37,7 +58,9 @@ impl DocumentRetriever {
 
         if let Some(file_types) = &filters.file_types {
             results.retain(|result| {
-                result.metadata.get("file_type")
+                result
+                    .metadata
+                    .get("file_type")
                     .map(|ft| file_types.contains(ft))
                     .unwrap_or(false)
             });
@@ -47,11 +70,17 @@ impl DocumentRetriever {
         Ok(results)
     }
 
-    pub async fn get_document_context(&self, document_id: Uuid, chunk_id: Uuid, context_size: usize) -> Result<Vec<SearchResult>> {
+    pub async fn get_document_context(
+        &self,
+        document_id: Uuid,
+        chunk_id: Uuid,
+        context_size: usize,
+    ) -> Result<Vec<SearchResult>> {
         let chunks = self.vector_store.get_document_chunks(document_id).await?;
-        
+
         // Find the target chunk
-        let target_chunk_index = chunks.iter()
+        let target_chunk_index = chunks
+            .iter()
             .position(|chunk| chunk.id == chunk_id)
             .ok_or_else(|| AppError::NotFound("Chunk not found".to_string()))?;
 
@@ -76,30 +105,44 @@ impl DocumentRetriever {
         Ok(results)
     }
 
-    pub async fn hybrid_search(&self, query_embedding: &[f32], keywords: &[String], goal_id: Option<Uuid>, limit: usize) -> Result<Vec<SearchResult>> {
+    pub async fn hybrid_search(
+        &self,
+        query_embedding: &[f32],
+        keywords: &[String],
+        goal_id: Option<Uuid>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         // Vector search
-        let vector_results = self.vector_store.search_similar(query_embedding, goal_id, limit).await?;
-        
+        let vector_results = self
+            .vector_store
+            .search_similar(query_embedding, goal_id, limit)
+            .await?;
+
         // Keyword search
         let keyword_results = self.keyword_search(keywords, goal_id, limit).await?;
-        
+
         // Combine and re-rank results
         let combined_results = self.combine_search_results(vector_results, keyword_results, limit);
-        
+
         Ok(combined_results)
     }
 
-    async fn keyword_search(&self, keywords: &[String], goal_id: Option<Uuid>, limit: usize) -> Result<Vec<SearchResult>> {
+    async fn keyword_search(
+        &self,
+        keywords: &[String],
+        goal_id: Option<Uuid>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let documents = self.vector_store.list_documents(goal_id).await?;
         let mut results = Vec::new();
 
         for document in documents {
             let chunks = self.vector_store.get_document_chunks(document.id).await?;
-            
+
             for chunk in chunks {
                 let mut score = 0.0;
                 let content_lower = chunk.content.to_lowercase();
-                
+
                 for keyword in keywords {
                     let keyword_lower = keyword.to_lowercase();
                     let matches = content_lower.matches(&keyword_lower).count();
@@ -120,13 +163,22 @@ impl DocumentRetriever {
         }
 
         // Sort by score
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
 
         Ok(results)
     }
 
-    fn combine_search_results(&self, vector_results: Vec<SearchResult>, keyword_results: Vec<SearchResult>, limit: usize) -> Vec<SearchResult> {
+    fn combine_search_results(
+        &self,
+        vector_results: Vec<SearchResult>,
+        keyword_results: Vec<SearchResult>,
+        limit: usize,
+    ) -> Vec<SearchResult> {
         let mut combined = std::collections::HashMap::new();
 
         // Add vector results
@@ -145,7 +197,11 @@ impl DocumentRetriever {
 
         // Convert to vector and sort
         let mut results: Vec<SearchResult> = combined.into_values().collect();
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
 
         results

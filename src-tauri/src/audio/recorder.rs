@@ -1,9 +1,9 @@
-use crate::error::{Result, AppError};
-use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
+use crate::error::{AppError, Result};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AudioDevice {
@@ -89,7 +89,7 @@ impl AudioRecorder {
             current_recorder: Arc::new(Mutex::new(None)),
         }
     }
-    
+
     pub async fn start_recording(
         &self,
         devices: Vec<AudioDevice>,
@@ -103,15 +103,18 @@ impl AudioRecorder {
             RecordingMethod::WebRTC,
             RecordingMethod::AppleScript,
         ];
-        
+
         let mut last_error = None;
-        
+
         for method in methods {
-            match self.try_recording_method(method.clone(), devices.clone()).await {
+            match self
+                .try_recording_method(method.clone(), devices.clone())
+                .await
+            {
                 Ok(info) => {
                     let mut status = self.status.lock().unwrap();
                     *status = RecordingStatus::Recording(info.clone());
-                    
+
                     println!("Started recording with method: {:?}", method);
                     return Ok(info);
                 }
@@ -121,18 +124,18 @@ impl AudioRecorder {
                 }
             }
         }
-        
+
         // All methods failed
         let error_msg = last_error
             .map(|e| e.to_string())
             .unwrap_or_else(|| "All recording methods failed".to_string());
-        
+
         let mut status = self.status.lock().unwrap();
         *status = RecordingStatus::Failed(error_msg.clone());
-        
+
         Err(AppError::Audio(error_msg))
     }
-    
+
     async fn try_recording_method(
         &self,
         method: RecordingMethod,
@@ -145,17 +148,20 @@ impl AudioRecorder {
                 let mut current_recorder = self.current_recorder.lock().unwrap();
                 *current_recorder = Some(Box::new(recorder));
                 Ok(info)
-            },
-            _ => Err(AppError::Audio(format!("{:?} recording method not yet implemented", method))),
+            }
+            _ => Err(AppError::Audio(format!(
+                "{:?} recording method not yet implemented",
+                method
+            ))),
         }
     }
-    
+
     pub async fn stop_recording(&self) -> Result<AudioRecording> {
         let mut current_recorder = self.current_recorder.lock().unwrap();
-        
+
         if let Some(mut recorder) = current_recorder.take() {
             let file_path = recorder.stop_recording()?;
-            
+
             // Get recording info from status
             let status = self.status.lock().unwrap();
             if let RecordingStatus::Recording(info) = &*status {
@@ -170,12 +176,12 @@ impl AudioRecorder {
                     meeting_info: None,
                     file_size_bytes: std::fs::metadata(&file_path)?.len(),
                     sample_rate: 48000, // Default, should be from recorder
-                    channels: 2, // Default, should be from recorder
+                    channels: 2,        // Default, should be from recorder
                 };
-                
+
                 let mut recordings = self.recordings.lock().unwrap();
                 recordings.push(recording.clone());
-                
+
                 Ok(recording)
             } else {
                 Err(AppError::Audio("No active recording".into()))
@@ -184,15 +190,15 @@ impl AudioRecorder {
             Err(AppError::Audio("No recorder available".into()))
         }
     }
-    
+
     pub fn get_status(&self) -> RecordingStatus {
         self.status.lock().unwrap().clone()
     }
-    
+
     pub fn get_recordings(&self) -> Vec<AudioRecording> {
         self.recordings.lock().unwrap().clone()
     }
-    
+
     pub fn list_audio_devices() -> Result<Vec<(String, AudioDevice)>> {
         // Use CPAL to list devices
         CpalRecorder::list_devices()
@@ -216,26 +222,26 @@ impl CpalRecorder {
             channels: 2,
         })
     }
-    
+
     fn list_devices() -> Result<Vec<(String, AudioDevice)>> {
         use cpal::traits::{DeviceTrait, HostTrait};
-        
+
         let host = cpal::default_host();
         let mut devices = vec![];
-        
+
         // Add default devices
         if let Some(device) = host.default_input_device() {
             if let Ok(name) = device.name() {
                 devices.push((name.clone(), AudioDevice::DefaultInput));
             }
         }
-        
+
         if let Some(device) = host.default_output_device() {
             if let Ok(name) = device.name() {
                 devices.push((name.clone(), AudioDevice::DefaultOutput));
             }
         }
-        
+
         // List all devices
         if let Ok(all_devices) = host.devices() {
             for device in all_devices {
@@ -244,7 +250,7 @@ impl CpalRecorder {
                 }
             }
         }
-        
+
         Ok(devices)
     }
 }
@@ -252,55 +258,66 @@ impl CpalRecorder {
 impl CpalRecorder {
     fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-        
+
         let host = cpal::default_host();
-        let device = host.default_input_device()
+        let device = host
+            .default_input_device()
             .ok_or_else(|| AppError::Audio("No input device available".into()))?;
-        
-        let config = device.default_input_config()
+
+        let config = device
+            .default_input_config()
             .map_err(|e| AppError::Audio(format!("Failed to get device config: {}", e)))?;
-        
+
         self.sample_rate = config.sample_rate().0;
         self.channels = config.channels();
-        
+
         // Create output file
         let recording_dir = dirs::data_dir()
             .ok_or_else(|| AppError::Audio("Could not find data directory".into()))?
             .join("personalassistant")
             .join("recordings");
-        
+
         std::fs::create_dir_all(&recording_dir)?;
-        
+
         let id = Uuid::new_v4();
         let file_path = recording_dir.join(format!("{}.wav", id));
-        
+
         let spec = hound::WavSpec {
             channels: self.channels,
             sample_rate: self.sample_rate,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
-        
+
         let writer = hound::WavWriter::create(&file_path, spec)
             .map_err(|e| AppError::Audio(format!("Failed to create WAV file: {}", e)))?;
-        
+
         self.writer = Some(writer);
-        
+
         // Start recording stream
         let writer_clone = Arc::new(Mutex::new(self.writer.take()));
-        
+
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => self.build_input_stream::<f32>(&device, &config.into(), writer_clone)?,
-            cpal::SampleFormat::I16 => self.build_input_stream::<i16>(&device, &config.into(), writer_clone)?,
-            cpal::SampleFormat::U16 => return Err(AppError::Audio("U16 sample format not supported by hound".into())),
+            cpal::SampleFormat::F32 => {
+                self.build_input_stream::<f32>(&device, &config.into(), writer_clone)?
+            }
+            cpal::SampleFormat::I16 => {
+                self.build_input_stream::<i16>(&device, &config.into(), writer_clone)?
+            }
+            cpal::SampleFormat::U16 => {
+                return Err(AppError::Audio(
+                    "U16 sample format not supported by hound".into(),
+                ))
+            }
             _ => return Err(AppError::Audio("Unsupported sample format".into())),
         };
-        
-        stream.play()
+
+        stream
+            .play()
             .map_err(|e| AppError::Audio(format!("Failed to start stream: {}", e)))?;
-        
+
         self.stream = Some(stream);
-        
+
         Ok(RecordingInfo {
             id,
             started_at: Utc::now(),
@@ -310,44 +327,47 @@ impl CpalRecorder {
             file_path,
         })
     }
-    
+
     fn stop_recording(&mut self) -> Result<PathBuf> {
         use cpal::traits::StreamTrait;
-        
+
         if let Some(stream) = self.stream.take() {
-            stream.pause()
+            stream
+                .pause()
                 .map_err(|e| AppError::Audio(format!("Failed to stop stream: {}", e)))?;
         }
-        
+
         if let Some(writer) = self.writer.take() {
-            writer.finalize()
+            writer
+                .finalize()
                 .map_err(|e| AppError::Audio(format!("Failed to finalize WAV file: {}", e)))?;
         }
-        
+
         // Return the file path
         Err(AppError::Audio("File path not available".into()))
     }
-    
+
     fn pause_recording(&mut self) -> Result<()> {
         use cpal::traits::StreamTrait;
-        
+
         if let Some(stream) = &self.stream {
-            stream.pause()
+            stream
+                .pause()
                 .map_err(|e| AppError::Audio(format!("Failed to pause stream: {}", e)))?;
         }
         Ok(())
     }
-    
+
     fn resume_recording(&mut self) -> Result<()> {
         use cpal::traits::StreamTrait;
-        
+
         if let Some(stream) = &self.stream {
-            stream.play()
+            stream
+                .play()
                 .map_err(|e| AppError::Audio(format!("Failed to resume stream: {}", e)))?;
         }
         Ok(())
     }
-    
 }
 
 impl CpalRecorder {
@@ -361,22 +381,24 @@ impl CpalRecorder {
         T: cpal::Sample + cpal::SizedSample + hound::Sample + Send + 'static,
     {
         use cpal::traits::DeviceTrait;
-        
-        let stream = device.build_input_stream(
-            config,
-            move |data: &[T], _: &cpal::InputCallbackInfo| {
-                if let Ok(mut writer_guard) = writer.lock() {
-                    if let Some(writer) = writer_guard.as_mut() {
-                        for &sample in data {
-                            let _ = writer.write_sample(sample);
+
+        let stream = device
+            .build_input_stream(
+                config,
+                move |data: &[T], _: &cpal::InputCallbackInfo| {
+                    if let Ok(mut writer_guard) = writer.lock() {
+                        if let Some(writer) = writer_guard.as_mut() {
+                            for &sample in data {
+                                let _ = writer.write_sample(sample);
+                            }
                         }
                     }
-                }
-            },
-            |err| eprintln!("Stream error: {}", err),
-            None,
-        ).map_err(|e| AppError::Audio(format!("Failed to build stream: {}", e)))?;
-        
+                },
+                |err| eprintln!("Stream error: {}", err),
+                None,
+            )
+            .map_err(|e| AppError::Audio(format!("Failed to build stream: {}", e)))?;
+
         Ok(stream)
     }
 }
@@ -400,19 +422,19 @@ impl Recorder for CoreAudioRecorder {
         // Use Core Audio APIs
         Err(AppError::Audio("Core Audio not implemented yet".into()))
     }
-    
+
     fn stop_recording(&mut self) -> Result<PathBuf> {
         Err(AppError::Audio("Core Audio not implemented yet".into()))
     }
-    
+
     fn pause_recording(&mut self) -> Result<()> {
         Err(AppError::Audio("Core Audio not implemented yet".into()))
     }
-    
+
     fn resume_recording(&mut self) -> Result<()> {
         Err(AppError::Audio("Core Audio not implemented yet".into()))
     }
-    
+
     fn get_method(&self) -> RecordingMethod {
         RecordingMethod::CoreAudio
     }
@@ -461,21 +483,29 @@ impl ScreenCaptureRecorder {
 
 impl Recorder for ScreenCaptureRecorder {
     fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
-        Err(AppError::Audio("ScreenCaptureKit not implemented yet".into()))
+        Err(AppError::Audio(
+            "ScreenCaptureKit not implemented yet".into(),
+        ))
     }
-    
+
     fn stop_recording(&mut self) -> Result<PathBuf> {
-        Err(AppError::Audio("ScreenCaptureKit not implemented yet".into()))
+        Err(AppError::Audio(
+            "ScreenCaptureKit not implemented yet".into(),
+        ))
     }
-    
+
     fn pause_recording(&mut self) -> Result<()> {
-        Err(AppError::Audio("ScreenCaptureKit not implemented yet".into()))
+        Err(AppError::Audio(
+            "ScreenCaptureKit not implemented yet".into(),
+        ))
     }
-    
+
     fn resume_recording(&mut self) -> Result<()> {
-        Err(AppError::Audio("ScreenCaptureKit not implemented yet".into()))
+        Err(AppError::Audio(
+            "ScreenCaptureKit not implemented yet".into(),
+        ))
     }
-    
+
     fn get_method(&self) -> RecordingMethod {
         RecordingMethod::ScreenCaptureKit
     }
@@ -496,19 +526,19 @@ impl Recorder for WebRTCRecorder {
     fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         Err(AppError::Audio("WebRTC not implemented yet".into()))
     }
-    
+
     fn stop_recording(&mut self) -> Result<PathBuf> {
         Err(AppError::Audio("WebRTC not implemented yet".into()))
     }
-    
+
     fn pause_recording(&mut self) -> Result<()> {
         Err(AppError::Audio("WebRTC not implemented yet".into()))
     }
-    
+
     fn resume_recording(&mut self) -> Result<()> {
         Err(AppError::Audio("WebRTC not implemented yet".into()))
     }
-    
+
     fn get_method(&self) -> RecordingMethod {
         RecordingMethod::WebRTC
     }
@@ -530,18 +560,18 @@ impl AppleScriptRecorder {
 impl Recorder for AppleScriptRecorder {
     fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         use std::process::Command;
-        
+
         let id = Uuid::new_v4();
         let recording_dir = dirs::data_dir()
             .ok_or_else(|| AppError::Audio("Could not find data directory".into()))?
             .join("personalassistant")
             .join("recordings");
-        
+
         std::fs::create_dir_all(&recording_dir)?;
-        
+
         let file_path = recording_dir.join(format!("{}.m4a", id));
         self.recording_path = Some(file_path.clone());
-        
+
         let script = format!(
             r#"
             tell application "QuickTime Player"
@@ -553,17 +583,19 @@ impl Recorder for AppleScriptRecorder {
             end tell
             "#
         );
-        
+
         let output = Command::new("osascript")
             .arg("-e")
             .arg(&script)
             .output()
             .map_err(|e| AppError::Audio(format!("Failed to run AppleScript: {}", e)))?;
-        
+
         if !output.status.success() {
-            return Err(AppError::Audio("Failed to start QuickTime recording".into()));
+            return Err(AppError::Audio(
+                "Failed to start QuickTime recording".into(),
+            ));
         }
-        
+
         Ok(RecordingInfo {
             id,
             started_at: Utc::now(),
@@ -573,13 +605,15 @@ impl Recorder for AppleScriptRecorder {
             file_path,
         })
     }
-    
+
     fn stop_recording(&mut self) -> Result<PathBuf> {
         use std::process::Command;
-        
-        let file_path = self.recording_path.take()
+
+        let file_path = self
+            .recording_path
+            .take()
             .ok_or_else(|| AppError::Audio("No recording path".into()))?;
-        
+
         let script = format!(
             r#"
             tell application "QuickTime Player"
@@ -592,23 +626,23 @@ impl Recorder for AppleScriptRecorder {
             "#,
             file_path.display()
         );
-        
+
         let output = Command::new("osascript")
             .arg("-e")
             .arg(&script)
             .output()
             .map_err(|e| AppError::Audio(format!("Failed to run AppleScript: {}", e)))?;
-        
+
         if !output.status.success() {
             return Err(AppError::Audio("Failed to stop QuickTime recording".into()));
         }
-        
+
         Ok(file_path)
     }
-    
+
     fn pause_recording(&mut self) -> Result<()> {
         use std::process::Command;
-        
+
         let script = r#"
             tell application "QuickTime Player"
                 tell document 1
@@ -616,19 +650,19 @@ impl Recorder for AppleScriptRecorder {
                 end tell
             end tell
         "#;
-        
+
         Command::new("osascript")
             .arg("-e")
             .arg(script)
             .output()
             .map_err(|e| AppError::Audio(format!("Failed to pause recording: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     fn resume_recording(&mut self) -> Result<()> {
         use std::process::Command;
-        
+
         let script = r#"
             tell application "QuickTime Player"
                 tell document 1
@@ -636,16 +670,16 @@ impl Recorder for AppleScriptRecorder {
                 end tell
             end tell
         "#;
-        
+
         Command::new("osascript")
             .arg("-e")
             .arg(script)
             .output()
             .map_err(|e| AppError::Audio(format!("Failed to resume recording: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     fn get_method(&self) -> RecordingMethod {
         RecordingMethod::AppleScript
     }

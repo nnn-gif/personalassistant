@@ -40,12 +40,12 @@ impl Goal {
             updated_at: now,
         }
     }
-    
+
     pub fn update_progress(&mut self, additional_minutes: u32) {
         self.current_duration_minutes += additional_minutes;
         self.updated_at = Utc::now();
     }
-    
+
     pub fn update_progress_seconds(&mut self, additional_seconds: u32) {
         // Accumulate seconds and convert to minutes when we reach 60 seconds
         self.current_duration_seconds += additional_seconds;
@@ -56,20 +56,22 @@ impl Goal {
         }
         self.updated_at = Utc::now();
     }
-    
+
     pub fn progress_percentage(&self) -> f32 {
         if self.target_duration_minutes > 0 {
-            ((self.current_duration_minutes as f32 / self.target_duration_minutes as f32) * 100.0).min(100.0)
+            ((self.current_duration_minutes as f32 / self.target_duration_minutes as f32) * 100.0)
+                .min(100.0)
         } else {
             0.0
         }
     }
-    
+
     pub fn is_app_allowed(&self, app_name: &str) -> bool {
-        self.allowed_apps.iter()
+        self.allowed_apps
+            .iter()
             .any(|allowed| allowed.to_lowercase() == app_name.to_lowercase())
     }
-    
+
     pub fn is_completed(&self) -> bool {
         self.progress_percentage() >= 100.0
     }

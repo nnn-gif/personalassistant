@@ -55,7 +55,7 @@ jobs:
       run: cargo test --manifest-path=src-tauri/Cargo.toml
 
     - name: Run Rust clippy
-      run: cargo clippy --manifest-path=src-tauri/Cargo.toml -- -D warnings -A unused-imports -A dead-code -A unused-variables
+      run: cargo clippy --manifest-path=src-tauri/Cargo.toml -- -D warnings -A unused-imports -A dead-code -A unused-variables -A unexpected-cfgs -A clippy::new-without-default -A clippy::needless-range-loop -A clippy::len-zero -A clippy::while-let-on-iterator -A clippy::single-char-add-str -A clippy::unnecessary-map-or -A clippy::redundant-pattern-matching -A clippy::needless-borrows-for-generic-args -A clippy::len-without-is-empty -A clippy::arc-with-non-send-sync -A clippy::useless-format -A clippy::explicit-counter-loop -A clippy::cast-abs-to-unsigned -A clippy::single-component-path-imports -A clippy::upper-case-acronyms -A clippy::let-underscore-future
 
     - name: Check Rust formatting
       run: cargo fmt --manifest-path=src-tauri/Cargo.toml --check

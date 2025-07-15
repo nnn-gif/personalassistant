@@ -24,7 +24,7 @@ impl EmbeddingModel {
         let client = Client::new();
         let model_name = "nomic-embed-text:latest".to_string();
         let ollama_url = "http://localhost:11434".to_string();
-        
+
         // Test connection to Ollama
         let test_url = format!("{}/api/tags", ollama_url);
         match client.get(&test_url).send().await {
@@ -34,10 +34,13 @@ impl EmbeddingModel {
                 }
             }
             Err(_) => {
-                eprintln!("Warning: Cannot connect to Ollama at {}. Make sure Ollama is running.", ollama_url);
+                eprintln!(
+                    "Warning: Cannot connect to Ollama at {}. Make sure Ollama is running.",
+                    ollama_url
+                );
             }
         }
-        
+
         Ok(Self {
             client,
             model_name,
@@ -65,19 +68,17 @@ impl EmbeddingModel {
         };
 
         let url = format!("{}/api/embeddings", self.ollama_url);
-        
-        match self.client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await
-        {
+
+        match self.client.post(&url).json(&request).send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     match response.json::<OllamaEmbedResponse>().await {
                         Ok(embed_response) => {
                             if embed_response.embedding.is_empty() {
-                                eprintln!("Warning: Ollama returned empty embedding for text: {}", &truncated_text[..50.min(truncated_text.len())]);
+                                eprintln!(
+                                    "Warning: Ollama returned empty embedding for text: {}",
+                                    &truncated_text[..50.min(truncated_text.len())]
+                                );
                                 Ok(self.create_fallback_embedding(truncated_text))
                             } else {
                                 Ok(embed_response.embedding)
@@ -89,7 +90,10 @@ impl EmbeddingModel {
                         }
                     }
                 } else {
-                    eprintln!("Ollama embedding request failed with status: {}", response.status());
+                    eprintln!(
+                        "Ollama embedding request failed with status: {}",
+                        response.status()
+                    );
                     Ok(self.create_fallback_embedding(truncated_text))
                 }
             }
@@ -104,44 +108,64 @@ impl EmbeddingModel {
         // Fallback embedding when Ollama is not available
         // This is better than the old hash-based approach but still not ideal
         let mut embedding = vec![0.0; 768]; // Match nomic-embed-text dimensions
-        
+
         // Basic text statistics
         let char_count = text.chars().count() as f32;
         let word_count = text.split_whitespace().count() as f32;
         let sentence_count = text.split(&['.', '!', '?']).count() as f32;
-        
+
         // Normalize and set basic features
         embedding[0] = (char_count / 1000.0).min(1.0);
         embedding[1] = (word_count / 100.0).min(1.0);
         embedding[2] = (sentence_count / 10.0).min(1.0);
-        
+
         // Word frequency features
         let words: Vec<&str> = text.split_whitespace().collect();
         let unique_words: std::collections::HashSet<&str> = words.iter().cloned().collect();
         embedding[3] = (unique_words.len() as f32 / word_count.max(1.0)).min(1.0);
-        
+
         // Simple keyword presence (better than the old approach)
         let keywords = [
-            "document", "file", "report", "data", "information", "content",
-            "business", "license", "permit", "form", "application", "request",
-            "date", "time", "location", "address", "name", "number", "id",
-            "meeting", "schedule", "appointment", "reservation", "booking"
+            "document",
+            "file",
+            "report",
+            "data",
+            "information",
+            "content",
+            "business",
+            "license",
+            "permit",
+            "form",
+            "application",
+            "request",
+            "date",
+            "time",
+            "location",
+            "address",
+            "name",
+            "number",
+            "id",
+            "meeting",
+            "schedule",
+            "appointment",
+            "reservation",
+            "booking",
         ];
-        
+
         let text_lower = text.to_lowercase();
         for (i, keyword) in keywords.iter().enumerate() {
             if text_lower.contains(keyword) {
                 embedding[10 + i] = 1.0;
             }
         }
-        
+
         // Fill remaining dimensions with normalized text hash
         let text_bytes = text.as_bytes();
         for i in 50..embedding.len() {
             let idx = i % text_bytes.len();
             embedding[i] = (text_bytes[idx] as f32) / 255.0;
         }
-        
+
         embedding
     }
 }

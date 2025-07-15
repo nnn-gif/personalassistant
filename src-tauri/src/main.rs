@@ -15,11 +15,11 @@ mod rag;
 mod services;
 mod storage;
 
+use database::SqliteDatabase;
 use error::AppError;
 use std::sync::Arc;
-use tauri::{generate_context, generate_handler, Manager};
-use database::SqliteDatabase;
 use storage::LocalStorage;
+use tauri::{generate_context, generate_handler, Manager};
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -30,25 +30,25 @@ fn main() {
         .setup(|app| {
             // Initialize services synchronously
             let activity_tracker = Arc::new(tokio::sync::Mutex::new(
-                activity_tracking::ActivityTracker::new()
+                activity_tracking::ActivityTracker::new(),
             ));
             app.manage(activity_tracker.clone());
-            
+
             let browser_ai = browser_ai::BrowserAIAgent::new();
             app.manage(Arc::new(tokio::sync::Mutex::new(browser_ai)));
-            
+
             let llm_client = llm::LlmClient::new();
             app.manage(Arc::new(llm_client));
-            
+
             match audio::SimpleAudioRecorder::new() {
                 Ok(recorder) => {
                     app.manage(Arc::new(recorder));
-                },
+                }
                 Err(e) => {
                     eprintln!("Failed to initialize audio recorder: {}", e);
                 }
             }
-            
+
             // Initialize SQLite database
             let db = tauri::async_runtime::block_on(async {
                 match SqliteDatabase::new().await {
@@ -62,11 +62,11 @@ fn main() {
                     }
                 }
             });
-            
+
             if let Some(db) = db.clone() {
                 app.manage(db.clone());
             }
-            
+
             // Initialize RAG system with automatic fallback
             let rag_system = tauri::async_runtime::block_on(async {
                 println!("Initializing RAG system...");
@@ -77,17 +77,19 @@ fn main() {
                         if let Some(db) = &db {
                             println!("Setting database for RAG system");
                             rag_wrapper.set_database(db.clone()).await;
-                            
+
                             // Load existing documents from database
                             if let Err(e) = rag_wrapper.load_from_database().await {
                                 eprintln!("Failed to load documents from database: {}", e);
                             } else {
-                                println!("RAG system initialized successfully with database persistence");
+                                println!(
+                                    "RAG system initialized successfully with database persistence"
+                                );
                             }
                         } else {
                             println!("RAG system initialized without database");
                         }
-                        
+
                         Some(Arc::new(tokio::sync::Mutex::new(rag_wrapper)))
                     }
                     Err(e) => {
@@ -96,11 +98,11 @@ fn main() {
                     }
                 }
             });
-            
+
             if let Some(rag) = rag_system {
                 app.manage(rag);
             }
-            
+
             // Initialize storage (for migration purposes)
             let storage = match LocalStorage::new() {
                 Ok(storage) => {
@@ -112,7 +114,7 @@ fn main() {
                     None
                 }
             };
-            
+
             // Initialize goal service with database
             let goal_service = Arc::new(tokio::sync::Mutex::new(goals::GoalService::new()));
             if let Some(db) = &db {
@@ -128,13 +130,13 @@ fn main() {
                 });
             }
             app.manage(goal_service.clone());
-            
+
             // Update activity tracker to use database
             if let Some(db) = &db {
                 let mut tracker = activity_tracker.blocking_lock();
                 tracker.set_database(db.clone());
             }
-            
+
             // Migrate existing data if needed
             if let (Some(db), Some(storage)) = (db, storage) {
                 tauri::async_runtime::spawn(async move {
@@ -146,7 +148,7 @@ fn main() {
                     }
                 });
             }
-            
+
             // Start activity tracking background task
             let tracker_clone = activity_tracker.clone();
             let goal_service_clone = goal_service.clone();
@@ -161,26 +163,27 @@ fn main() {
                             let goal_service = goal_service_clone.lock().await;
                             goal_service.get_active_goal_info()
                         };
-                        
+
                         match tracker.collect_activity(active_goal_info).await {
                             Ok(activity) => {
-                                let goal_msg = if activity.goal_id.is_some() { 
-                                    " [Goal tracked]" 
-                                } else { 
-                                    "" 
+                                let goal_msg = if activity.goal_id.is_some() {
+                                    " [Goal tracked]"
+                                } else {
+                                    ""
                                 };
-                                println!("Activity collected: {} - {}{}", 
-                                    activity.app_usage.app_name, 
+                                println!(
+                                    "Activity collected: {} - {}{}",
+                                    activity.app_usage.app_name,
                                     activity.app_usage.window_title,
                                     goal_msg
                                 );
-                                
+
                                 // Update goal progress if activity is part of active goal
                                 if activity.goal_id.is_some() {
                                     let mut goal_service = goal_service_clone.lock().await;
                                     let _ = goal_service.update_active_goal_progress_seconds(
-                                        &activity.app_usage.app_name, 
-                                        activity.duration_seconds as u32
+                                        &activity.app_usage.app_name,
+                                        activity.duration_seconds as u32,
                                     );
                                 }
                             }
@@ -191,7 +194,7 @@ fn main() {
                     }
                 }
             });
-            
+
             Ok(())
         })
         .invoke_handler(generate_handler![
@@ -200,7 +203,6 @@ fn main() {
             services::activity::get_activity_history,
             services::activity::start_tracking,
             services::activity::stop_tracking,
-            
             // Browser AI commands
             services::browser_ai::test_research,
             services::browser_ai::start_research,
@@ -208,29 +210,24 @@ fn main() {
             services::browser_ai::save_research,
             services::browser_ai::get_saved_research,
             services::browser_ai::delete_saved_research,
-            
             // Goal commands
             services::goals::create_goal,
             services::goals::activate_goal,
             services::goals::deactivate_goal,
             services::goals::get_goals,
             services::goals::get_goal_progress,
-            
             // LLM commands
             services::llm::get_productivity_insights,
             services::llm::get_productivity_score,
             services::llm::get_recommendations,
             services::llm::chat_with_documents,
             services::llm::get_available_models,
-            
             // Embedding commands
             services::embeddings::test_embeddings,
-            
             // Productivity commands
             services::productivity::get_productivity_trend,
             services::productivity::get_app_usage_stats,
             services::productivity::get_current_productivity_score,
-            
             // Audio commands
             services::audio::list_audio_devices,
             services::audio::start_audio_recording,
@@ -244,7 +241,6 @@ fn main() {
             services::audio::process_audio_file,
             services::audio::get_audio_info,
             services::audio::delete_recording,
-            
             // RAG commands
             services::rag::initialize_rag,
             services::rag::index_document,
@@ -260,7 +256,6 @@ fn main() {
             services::rag::inspect_rag_database,
             services::rag::cleanup_corrupted_documents,
             services::rag::clear_vector_database,
-            
             // File manager commands
             services::file_manager::scan_folder_for_documents,
             services::file_manager::get_file_info,

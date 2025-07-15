@@ -1,19 +1,19 @@
+use crate::database::SqliteDatabase;
 use crate::error::{AppError, Result};
 use crate::rag::{Document, DocumentChunk, SearchResult};
-use uuid::Uuid;
+use qdrant_client::{
+    qdrant::{
+        points_selector::PointsSelectorOneOf, vectors_config::Config, Condition, CreateCollection,
+        Datatype, DeletePoints, Distance, FieldCondition, Filter, Match, PointStruct,
+        PointsSelector, ScrollPoints, SearchParams, SearchPoints, UpsertPoints, Value,
+        VectorParams, VectorsConfig,
+    },
+    Qdrant,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use qdrant_client::{
-    Qdrant,
-    qdrant::{
-        vectors_config::Config, CreateCollection, Distance, PointStruct, SearchPoints,
-        VectorParams, VectorsConfig, Filter, Condition, FieldCondition, Match, Value,
-        SearchParams, ScrollPoints, Datatype, PointsSelector, DeletePoints, UpsertPoints,
-        points_selector::PointsSelectorOneOf,
-    },
-};
-use crate::database::SqliteDatabase;
+use uuid::Uuid;
 
 const COLLECTION_NAME: &str = "document_chunks";
 const EMBEDDING_SIZE: u64 = 768; // Adjust based on your embedding model
@@ -47,7 +47,8 @@ impl QdrantVectorStore {
 
     async fn initialize_collection(&self) -> Result<()> {
         // Check if collection exists
-        let collections = self.client
+        let collections = self
+            .client
             .list_collections()
             .await
             .map_err(|e| AppError::VectorStore(format!("Failed to list collections: {}", e)))?;
@@ -90,7 +91,9 @@ impl QdrantVectorStore {
                     strict_mode_config: None,
                 })
                 .await
-                .map_err(|e| AppError::VectorStore(format!("Failed to create collection: {}", e)))?;
+                .map_err(|e| {
+                    AppError::VectorStore(format!("Failed to create collection: {}", e))
+                })?;
 
             println!("Created Qdrant collection: {}", COLLECTION_NAME);
         } else {
@@ -104,9 +107,9 @@ impl QdrantVectorStore {
         if let Some(db) = &self.database {
             let database = db.lock().await;
             let documents = database.load_documents(None).await?;
-            
+
             let mut points = Vec::new();
-            
+
             for document in documents {
                 for chunk in &document.chunks {
                     let point = PointStruct {
@@ -129,7 +132,9 @@ impl QdrantVectorStore {
                         shard_key_selector: None,
                     })
                     .await
-                    .map_err(|e| AppError::VectorStore(format!("Failed to load data to Qdrant: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::VectorStore(format!("Failed to load data to Qdrant: {}", e))
+                    })?;
 
                 println!("Loaded {} chunks to Qdrant", points_len);
             }
@@ -138,7 +143,11 @@ impl QdrantVectorStore {
         Ok(())
     }
 
-    pub async fn store_document(&self, document: &Document, chunks: &[DocumentChunk]) -> Result<()> {
+    pub async fn store_document(
+        &self,
+        document: &Document,
+        chunks: &[DocumentChunk],
+    ) -> Result<()> {
         // Save to database first
         if let Some(db) = &self.database {
             let database = db.lock().await;
@@ -174,7 +183,12 @@ impl QdrantVectorStore {
         Ok(())
     }
 
-    pub async fn search_similar(&self, query_embedding: &[f32], goal_id: Option<Uuid>, limit: usize) -> Result<Vec<SearchResult>> {
+    pub async fn search_similar(
+        &self,
+        query_embedding: &[f32],
+        goal_id: Option<Uuid>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let mut filter = None;
 
         // Add goal filter if specified
@@ -182,13 +196,15 @@ impl QdrantVectorStore {
             filter = Some(Filter {
                 should: vec![],
                 must: vec![Condition {
-                    condition_one_of: Some(qdrant_client::qdrant::condition::ConditionOneOf::Field(
-                        FieldCondition {
+                    condition_one_of: Some(
+                        qdrant_client::qdrant::condition::ConditionOneOf::Field(FieldCondition {
                             key: "goal_id".to_string(),
                             r#match: Some(Match {
-                                match_value: Some(qdrant_client::qdrant::r#match::MatchValue::Keyword(
-                                    goal_id.to_string(),
-                                )),
+                                match_value: Some(
+                                    qdrant_client::qdrant::r#match::MatchValue::Keyword(
+                                        goal_id.to_string(),
+                                    ),
+                                ),
                             }),
                             range: None,
                             geo_bounding_box: None,
@@ -198,15 +214,16 @@ impl QdrantVectorStore {
                             is_empty: None,
                             is_null: None,
                             datetime_range: None,
-                        },
-                    )),
+                        }),
+                    ),
                 }],
                 must_not: vec![],
                 min_should: None,
             });
         }
 
-        let search_result = self.client
+        let search_result = self
+            .client
             .search_points(SearchPoints {
                 collection_name: COLLECTION_NAME.to_string(),
                 vector: query_embedding.to_vec(),
@@ -236,23 +253,30 @@ impl QdrantVectorStore {
             let payload = scored_point.payload;
             let search_result = SearchResult {
                 document_id: Uuid::parse_str(
-                    payload.get("document_id")
+                    payload
+                        .get("document_id")
                         .map(|v| v.to_string())
                         .as_deref()
-                        .unwrap_or("")
-                ).unwrap_or_default(),
+                        .unwrap_or(""),
+                )
+                .unwrap_or_default(),
                 chunk_id: Uuid::parse_str(
-                    scored_point.id
+                    scored_point
+                        .id
                         .and_then(|id| match id.point_id_options {
-                            Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) => Some(uuid),
+                            Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) => {
+                                Some(uuid)
+                            }
                             Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(_)) => None,
                             None => None,
                         })
                         .map(|id| id.to_string())
                         .as_deref()
-                        .unwrap_or("")
-                ).unwrap_or_default(),
-                content: payload.get("content")
+                        .unwrap_or(""),
+                )
+                .unwrap_or_default(),
+                content: payload
+                    .get("content")
                     .map(|v| v.to_string())
                     .as_deref()
                     .unwrap_or("")
@@ -266,7 +290,11 @@ impl QdrantVectorStore {
         Ok(results)
     }
 
-    pub async fn get_goal_documents(&self, goal_id: Uuid, limit: usize) -> Result<Vec<SearchResult>> {
+    pub async fn get_goal_documents(
+        &self,
+        goal_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let filter = Filter {
             should: vec![],
             must: vec![Condition {
@@ -294,7 +322,8 @@ impl QdrantVectorStore {
         };
 
         // Use scroll to get all matching points (not vector search)
-        let scroll_result = self.client
+        let scroll_result = self
+            .client
             .scroll(ScrollPoints {
                 collection_name: COLLECTION_NAME.to_string(),
                 filter: Some(filter),
@@ -315,23 +344,30 @@ impl QdrantVectorStore {
             let payload = point.payload;
             let search_result = SearchResult {
                 document_id: Uuid::parse_str(
-                    payload.get("document_id")
+                    payload
+                        .get("document_id")
                         .map(|v| v.to_string())
                         .as_deref()
-                        .unwrap_or("")
-                ).unwrap_or_default(),
+                        .unwrap_or(""),
+                )
+                .unwrap_or_default(),
                 chunk_id: Uuid::parse_str(
-                    point.id
+                    point
+                        .id
                         .and_then(|id| match id.point_id_options {
-                            Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) => Some(uuid),
+                            Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) => {
+                                Some(uuid)
+                            }
                             Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(_)) => None,
                             None => None,
                         })
                         .map(|id| id.to_string())
                         .as_deref()
-                        .unwrap_or("")
-                ).unwrap_or_default(),
-                content: payload.get("content")
+                        .unwrap_or(""),
+                )
+                .unwrap_or_default(),
+                content: payload
+                    .get("content")
                     .map(|v| v.to_string())
                     .as_deref()
                     .unwrap_or("")
@@ -344,10 +380,14 @@ impl QdrantVectorStore {
 
         // Sort by chunk index for consistent ordering
         results.sort_by(|a, b| {
-            let a_index = a.metadata.get("chunk_index")
+            let a_index = a
+                .metadata
+                .get("chunk_index")
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(0);
-            let b_index = b.metadata.get("chunk_index")
+            let b_index = b
+                .metadata
+                .get("chunk_index")
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(0);
             a_index.cmp(&b_index)
@@ -412,7 +452,9 @@ impl QdrantVectorStore {
             let database = db.lock().await;
             database.load_documents(goal_id).await
         } else {
-            Err(AppError::VectorStore("Database not available for listing documents".to_string()))
+            Err(AppError::VectorStore(
+                "Database not available for listing documents".to_string(),
+            ))
         }
     }
 
@@ -422,7 +464,9 @@ impl QdrantVectorStore {
             let documents = database.load_documents(None).await?;
             Ok(documents.into_iter().find(|d| d.id == document_id))
         } else {
-            Err(AppError::VectorStore("Database not available for getting document".to_string()))
+            Err(AppError::VectorStore(
+                "Database not available for getting document".to_string(),
+            ))
         }
     }
 
@@ -436,7 +480,9 @@ impl QdrantVectorStore {
                 Ok(Vec::new())
             }
         } else {
-            Err(AppError::VectorStore("Database not available for getting chunks".to_string()))
+            Err(AppError::VectorStore(
+                "Database not available for getting chunks".to_string(),
+            ))
         }
     }
 }
@@ -447,7 +493,7 @@ impl Clone for QdrantVectorStore {
         let client = Qdrant::from_url("http://localhost:6333")
             .build()
             .expect("Failed to clone Qdrant client");
-            
+
         Self {
             client,
             database: self.database.clone(),
@@ -457,28 +503,40 @@ impl Clone for QdrantVectorStore {
 
 fn create_chunk_payload(document: &Document, chunk: &DocumentChunk) -> HashMap<String, Value> {
     let mut payload = HashMap::new();
-    
-    payload.insert("document_id".to_string(), Value::from(document.id.to_string()));
+
+    payload.insert(
+        "document_id".to_string(),
+        Value::from(document.id.to_string()),
+    );
     payload.insert("content".to_string(), Value::from(chunk.content.clone()));
-    payload.insert("chunk_index".to_string(), Value::from(chunk.chunk_index as i64));
-    payload.insert("document_title".to_string(), Value::from(document.title.clone()));
-    payload.insert("file_path".to_string(), Value::from(document.file_path.clone()));
-    
+    payload.insert(
+        "chunk_index".to_string(),
+        Value::from(chunk.chunk_index as i64),
+    );
+    payload.insert(
+        "document_title".to_string(),
+        Value::from(document.title.clone()),
+    );
+    payload.insert(
+        "file_path".to_string(),
+        Value::from(document.file_path.clone()),
+    );
+
     if let Some(goal_id) = document.goal_id {
         payload.insert("goal_id".to_string(), Value::from(goal_id.to_string()));
     }
-    
+
     // Add chunk metadata
     for (key, value) in &chunk.metadata {
         payload.insert(format!("meta_{}", key), Value::from(value.clone()));
     }
-    
+
     payload
 }
 
 fn extract_metadata_from_payload(payload: &HashMap<String, Value>) -> HashMap<String, String> {
     let mut metadata = HashMap::new();
-    
+
     for (key, value) in payload {
         if key.starts_with("meta_") {
             let meta_key = key.strip_prefix("meta_").unwrap_or(key);
@@ -487,6 +545,6 @@ fn extract_metadata_from_payload(payload: &HashMap<String, Value>) -> HashMap<St
             metadata.insert(key.clone(), value.to_string());
         }
     }
-    
+
     metadata
 }

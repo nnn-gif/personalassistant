@@ -4,15 +4,14 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[tauri::command]
-pub async fn test_embeddings(
-    text: String,
-) -> std::result::Result<TestEmbeddingResponse, String> {
-    let embedding_model = EmbeddingModel::new().await
+pub async fn test_embeddings(text: String) -> std::result::Result<TestEmbeddingResponse, String> {
+    let embedding_model = EmbeddingModel::new().await.map_err(|e| e.to_string())?;
+
+    let embedding = embedding_model
+        .embed_text(&text)
+        .await
         .map_err(|e| e.to_string())?;
-    
-    let embedding = embedding_model.embed_text(&text).await
-        .map_err(|e| e.to_string())?;
-    
+
     Ok(TestEmbeddingResponse {
         text,
         embedding_length: embedding.len(),
