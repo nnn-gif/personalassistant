@@ -143,20 +143,33 @@ impl LlmClient {
     }
     
     pub async fn send_request(&self, prompt: &str) -> Result<String> {
+        println!("LLM: Creating client and preparing request for model: {}", self.model_name);
         let client = Client::default();
         
         let chat_req = ChatRequest::new(vec![
             ChatMessage::user(prompt)
         ]);
         
+        println!("LLM: Sending request to model...");
         let chat_response = client
             .exec_chat(&self.model_name, chat_req, None)
             .await
-            .map_err(|e| AppError::Llm(format!("LLM request failed: {}", e)))?;
+            .map_err(|e| {
+                eprintln!("LLM: Request failed: {}", e);
+                AppError::Llm(format!("LLM request failed: {}", e))
+            })?;
         
-        chat_response.content_text_as_str()
+        println!("LLM: Received response, extracting content...");
+        let result = chat_response.content_text_as_str()
             .ok_or_else(|| AppError::Llm("Empty response from LLM".into()))
-            .map(|s| s.to_string())
+            .map(|s| s.to_string());
+            
+        match &result {
+            Ok(content) => println!("LLM: Successfully extracted content (length: {})", content.len()),
+            Err(e) => eprintln!("LLM: Failed to extract content: {}", e),
+        }
+        
+        result
     }
     
     fn extract_json(&self, text: &str) -> Result<serde_json::Value> {

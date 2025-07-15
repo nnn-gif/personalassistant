@@ -50,6 +50,9 @@ pub enum AppError {
     #[error("Processing error: {0}")]
     ProcessingError(String),
     
+    #[error("Vector store error: {0}")]
+    VectorStore(String),
+    
     #[error("Generic error: {0}")]
     Generic(#[from] anyhow::Error),
 }

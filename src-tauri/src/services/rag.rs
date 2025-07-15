@@ -1,10 +1,10 @@
-use crate::rag::RAGSystem;
+use crate::rag::RAGSystemWrapper;
 use tauri::{State, Manager, AppHandle, Emitter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-type RAGState = Arc<Mutex<RAGSystem>>;
+type RAGState = Arc<Mutex<RAGSystemWrapper>>;
 
 #[tauri::command]
 pub async fn initialize_rag(rag_system: State<'_, RAGState>) -> std::result::Result<String, String> {
@@ -27,8 +27,13 @@ pub async fn index_document(
         None
     };
 
-    let document = rag.index_document(&file_path, goal_uuid).await.map_err(|e| e.to_string())?;
+    println!("Indexing document synchronously: {}", file_path);
+    let document = rag.index_document(&file_path, goal_uuid).await.map_err(|e| {
+        eprintln!("Failed to index document synchronously {}: {}", file_path, e);
+        e.to_string()
+    })?;
     
+    println!("Successfully indexed document synchronously: {} with ID {}", document.title, document.id);
     Ok(format!("Document indexed successfully: {}", document.id))
 }
 
@@ -91,8 +96,10 @@ pub async fn index_document_async(
         // Perform actual indexing
         let mut rag = rag_system.lock().await;
         
+        println!("Starting to index document: {}", file_path);
         match rag.index_document(&file_path, goal_uuid).await {
             Ok(document) => {
+                println!("Successfully indexed document: {} with {} chunks", document.title, document.chunks.len());
                 let _ = app_handle.emit("indexing-progress", IndexingProgress {
                     task_id: task_id_clone.clone(),
                     status: "completed".to_string(),
@@ -111,6 +118,7 @@ pub async fn index_document_async(
                 });
             }
             Err(e) => {
+                eprintln!("Failed to index document {}: {}", file_path, e);
                 let _ = app_handle.emit("indexing-progress", IndexingProgress {
                     task_id: task_id_clone,
                     status: "error".to_string(),

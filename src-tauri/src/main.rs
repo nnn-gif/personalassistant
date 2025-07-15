@@ -67,43 +67,35 @@ fn main() {
                 app.manage(db.clone());
             }
             
-            // Initialize RAG system with database
-            let rag_system = if let Some(db) = &db {
-                tauri::async_runtime::block_on(async {
-                    match rag::RAGSystem::new().await {
-                        Ok(mut rag) => {
-                            // Connect RAG system to database
-                            rag.set_database(db.clone()).await;
+            // Initialize RAG system with automatic fallback
+            let rag_system = tauri::async_runtime::block_on(async {
+                println!("Initializing RAG system...");
+                match rag::RAGSystem::new_with_automatic_fallback().await {
+                    Ok(mut rag_wrapper) => {
+                        println!("RAG system wrapper created successfully");
+                        // Connect RAG system to database if available
+                        if let Some(db) = &db {
+                            println!("Setting database for RAG system");
+                            rag_wrapper.set_database(db.clone()).await;
                             
                             // Load existing documents from database
-                            if let Err(e) = rag.load_from_database().await {
+                            if let Err(e) = rag_wrapper.load_from_database().await {
                                 eprintln!("Failed to load documents from database: {}", e);
                             } else {
                                 println!("RAG system initialized successfully with database persistence");
                             }
-                            
-                            Some(Arc::new(tokio::sync::Mutex::new(rag)))
+                        } else {
+                            println!("RAG system initialized without database");
                         }
-                        Err(e) => {
-                            eprintln!("Failed to initialize RAG system: {}", e);
-                            None
-                        }
+                        
+                        Some(Arc::new(tokio::sync::Mutex::new(rag_wrapper)))
                     }
-                })
-            } else {
-                tauri::async_runtime::block_on(async {
-                    match rag::RAGSystem::new().await {
-                        Ok(rag) => {
-                            println!("RAG system initialized successfully (no database)");
-                            Some(Arc::new(tokio::sync::Mutex::new(rag)))
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to initialize RAG system: {}", e);
-                            None
-                        }
+                    Err(e) => {
+                        eprintln!("Failed to initialize RAG system: {}", e);
+                        None
                     }
-                })
-            };
+                }
+            });
             
             if let Some(rag) = rag_system {
                 app.manage(rag);

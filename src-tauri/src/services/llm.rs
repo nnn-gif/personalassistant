@@ -39,7 +39,7 @@ pub async fn get_recommendations(
 #[tauri::command]
 pub async fn chat_with_documents(
     llm: State<'_, Arc<LlmClient>>,
-    rag_system: State<'_, Arc<Mutex<crate::rag::RAGSystem>>>,
+    rag_system: State<'_, Arc<Mutex<crate::rag::RAGSystemWrapper>>>,
     query: String,
     goal_id: Option<String>,
     limit: Option<usize>,
@@ -52,10 +52,18 @@ pub async fn chat_with_documents(
 
     let limit = limit.unwrap_or(5);
 
+    println!("Starting document chat with query: {}", query);
+    
     // Search for relevant documents
     let rag = rag_system.lock().await;
+    println!("Acquired RAG system lock, searching for documents...");
     let search_results = rag.search(&query, goal_uuid, limit).await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            eprintln!("Failed to search documents: {}", e);
+            format!("Search failed: {}", e)
+        })?;
+    
+    println!("Found {} search results", search_results.len());
 
     // Build context from search results
     let mut context = String::new();
@@ -86,8 +94,14 @@ pub async fn chat_with_documents(
         )
     };
 
+    println!("Sending prompt to LLM (length: {} chars)", prompt.len());
     let response_text = llm.send_request(&prompt).await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            eprintln!("LLM request failed: {}", e);
+            format!("LLM error: {}", e)
+        })?;
+    
+    println!("Received LLM response (length: {} chars)", response_text.len());
 
     Ok(ChatResponse {
         message: response_text,
