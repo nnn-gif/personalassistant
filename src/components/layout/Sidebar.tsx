@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion'
 import { 
   LayoutDashboard, 
-  Search, 
   Target, 
   Activity,
   Brain,
@@ -17,12 +16,11 @@ interface SidebarProps {
 
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'research', label: 'Research Assistant', icon: Search },
+  { id: 'chat', label: 'Assistant Chat', icon: MessageCircle },
   { id: 'goals', label: 'Goals', icon: Target },
   { id: 'activity', label: 'Activity Monitor', icon: Activity },
   { id: 'audio', label: 'Audio Recorder', icon: Mic },
   { id: 'documents', label: 'Document Manager', icon: FileText },
-  { id: 'chat', label: 'Document Chat', icon: MessageCircle },
 ]
 
 export default function Sidebar({ currentView, onViewChange }: SidebarProps) {

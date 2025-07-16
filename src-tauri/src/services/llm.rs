@@ -210,3 +210,29 @@ pub async fn get_available_models(
         Err(e) => Err(format!("Failed to get available models: {e}")),
     }
 }
+
+#[tauri::command]
+pub async fn general_chat(
+    llm: State<'_, Arc<LlmClient>>,
+    message: String,
+    model: Option<String>,
+) -> std::result::Result<String, String> {
+    println!("Starting general chat with message: {message}");
+    
+    let model_name = model.unwrap_or_else(|| "llama3.2:1b".to_string());
+    
+    let prompt = format!(
+        "You are a helpful AI assistant. Please respond to the following message in a conversational and helpful manner:\n\n{message}"
+    );
+    
+    match llm.send_request_with_model(&prompt, &model_name).await {
+        Ok(response) => {
+            println!("Generated response for general chat");
+            Ok(response)
+        }
+        Err(e) => {
+            eprintln!("Failed to generate response: {e}");
+            Err(format!("Failed to generate response: {e}"))
+        }
+    }
+}

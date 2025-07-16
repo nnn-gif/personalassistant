@@ -2,14 +2,13 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import Sidebar from './components/layout/Sidebar'
 import Dashboard from './components/Dashboard'
-import ResearchAssistant from './components/ResearchAssistant'
 import GoalsManager from './components/GoalsManager'
 import ActivityMonitor from './components/ActivityMonitor'
 import AudioRecorder from './components/AudioRecorder'
 import DocumentManager from './components/DocumentManager'
-import DocumentChat from './components/DocumentChat'
+import UnifiedChat from './components/UnifiedChat'
 
-type View = 'dashboard' | 'research' | 'goals' | 'activity' | 'audio' | 'documents' | 'chat'
+type View = 'dashboard' | 'goals' | 'activity' | 'audio' | 'documents' | 'chat'
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard')
@@ -18,8 +17,6 @@ function App() {
     switch (currentView) {
       case 'dashboard':
         return <Dashboard />
-      case 'research':
-        return <ResearchAssistant />
       case 'goals':
         return <GoalsManager />
       case 'activity':
@@ -29,7 +26,7 @@ function App() {
       case 'documents':
         return <DocumentManager />
       case 'chat':
-        return <DocumentChat />
+        return <UnifiedChat />
       default:
         return <Dashboard />
     }

@@ -221,6 +221,7 @@ fn main() {
             services::llm::get_recommendations,
             services::llm::chat_with_documents,
             services::llm::get_available_models,
+            services::llm::general_chat,
             // Embedding commands
             services::embeddings::test_embeddings,
             // Productivity commands
