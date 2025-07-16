@@ -9,30 +9,48 @@ use uuid::Uuid;
 #[tauri::command]
 pub async fn get_productivity_insights(
     llm: State<'_, Arc<LlmClient>>,
-    _hours: usize,
+    activity_tracker: State<'_, Arc<Mutex<crate::activity_tracking::ActivityTracker>>>,
+    hours: usize,
 ) -> Result<ProductivityInsights> {
-    // For now, return mock data until database is ready
-    let activities = vec![];
+    // Get recent activities from the tracker
+    let activities = {
+        let tracker = activity_tracker.lock().await;
+        tracker.get_recent_activities(hours * 20) // Estimate 20 activities per hour
+    };
+    
+    println!("Generating productivity insights from {} activities", activities.len());
     llm.generate_productivity_insights(&activities).await
 }
 
 #[tauri::command]
 pub async fn get_productivity_score(
     llm: State<'_, Arc<LlmClient>>,
-    _hours: usize,
+    activity_tracker: State<'_, Arc<Mutex<crate::activity_tracking::ActivityTracker>>>,
+    hours: usize,
 ) -> Result<ProductivityScore> {
-    // For now, return mock data until database is ready
-    let activities = vec![];
+    // Get recent activities from the tracker
+    let activities = {
+        let tracker = activity_tracker.lock().await;
+        tracker.get_recent_activities(hours * 20) // Estimate 20 activities per hour
+    };
+    
+    println!("Generating productivity score from {} activities", activities.len());
     llm.generate_productivity_score(&activities).await
 }
 
 #[tauri::command]
 pub async fn get_recommendations(
     llm: State<'_, Arc<LlmClient>>,
-    _hours: usize,
+    activity_tracker: State<'_, Arc<Mutex<crate::activity_tracking::ActivityTracker>>>,
+    hours: usize,
 ) -> Result<Vec<String>> {
-    // For now, return mock data until database is ready
-    let activities = vec![];
+    // Get recent activities from the tracker
+    let activities = {
+        let tracker = activity_tracker.lock().await;
+        tracker.get_recent_activities(hours * 20) // Estimate 20 activities per hour
+    };
+    
+    println!("Generating recommendations from {} activities", activities.len());
     llm.generate_recommendations(&activities).await
 }
 

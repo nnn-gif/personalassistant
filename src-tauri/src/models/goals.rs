@@ -67,6 +67,11 @@ impl Goal {
     }
 
     pub fn is_app_allowed(&self, app_name: &str) -> bool {
+        // If allowed_apps is empty, allow all apps (Master Goal behavior)
+        if self.allowed_apps.is_empty() {
+            return true;
+        }
+        
         self.allowed_apps
             .iter()
             .any(|allowed| allowed.to_lowercase() == app_name.to_lowercase())

@@ -209,10 +209,12 @@ impl SqliteDatabase {
                 id TEXT PRIMARY KEY NOT NULL,
                 title TEXT NOT NULL,
                 mode TEXT NOT NULL,
+                goal_id TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 message_count INTEGER NOT NULL DEFAULT 0,
-                last_message_at TEXT
+                last_message_at TEXT,
+                FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE SET NULL
             )
         "#,
         )
@@ -468,7 +470,7 @@ impl SqliteDatabase {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Activity>> {
-        let _rows = sqlx::query(
+        let rows = sqlx::query(
             "SELECT id, timestamp, duration_seconds, app_name, window_title, category, is_productive, keystrokes, mouse_clicks, mouse_distance_pixels, goal_id, project_name FROM activities WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC"
         )
         .bind(start.to_rfc3339())
@@ -477,9 +479,68 @@ impl SqliteDatabase {
         .await
         .map_err(|e| AppError::Database(format!("Failed to fetch activities: {}", e)))?;
 
-        // Convert rows to activities using same logic as get_recent_activities
-        // For now returning empty, but could implement full conversion
-        Ok(vec![])
+        let mut activities = Vec::new();
+        for row in rows {
+            use crate::models::{
+                AppCategory, AppUsage, InputMetrics, ProjectContext, ProjectType, SystemState,
+            };
+
+            let category = match row.get::<String, _>("category").as_str() {
+                "Development" => AppCategory::Development,
+                "Communication" => AppCategory::Communication,
+                "SocialMedia" => AppCategory::SocialMedia,
+                "Entertainment" => AppCategory::Entertainment,
+                "Productivity" => AppCategory::Productivity,
+                "System" => AppCategory::System,
+                _ => AppCategory::Other,
+            };
+
+            activities.push(Activity {
+                id: Uuid::parse_str(&row.get::<String, _>("id"))
+                    .map_err(|e| AppError::Database(format!("Invalid UUID: {}", e)))?,
+                timestamp: DateTime::parse_from_rfc3339(&row.get::<String, _>("timestamp"))
+                    .map_err(|e| AppError::Database(format!("Invalid timestamp: {}", e)))?
+                    .with_timezone(&Utc),
+                duration_seconds: row.get("duration_seconds"),
+                app_usage: AppUsage {
+                    app_name: row.get("app_name"),
+                    bundle_id: String::new(),
+                    window_title: row.get("window_title"),
+                    category,
+                    is_productive: row.get("is_productive"),
+                    browser_url: None,
+                    editor_file: None,
+                    terminal_info: None,
+                },
+                input_metrics: InputMetrics {
+                    keystrokes: row.get::<i32, _>("keystrokes") as u32,
+                    mouse_clicks: row.get::<i32, _>("mouse_clicks") as u32,
+                    mouse_distance_pixels: row.get("mouse_distance_pixels"),
+                    active_typing_seconds: 0,
+                },
+                system_state: SystemState {
+                    idle_time_seconds: 0,
+                    is_screen_locked: false,
+                    battery_percentage: None,
+                    is_on_battery: false,
+                    cpu_usage_percent: 0.0,
+                    memory_usage_mb: 0,
+                },
+                project_context: row.get::<Option<String>, _>("project_name").map(|name| {
+                    ProjectContext {
+                        project_name: name,
+                        project_path: String::new(),
+                        project_type: ProjectType::Other("Unknown".to_string()),
+                        git_branch: None,
+                    }
+                }),
+                goal_id: row
+                    .get::<Option<String>, _>("goal_id")
+                    .and_then(|id| Uuid::parse_str(&id).ok()),
+            });
+        }
+
+        Ok(activities)
     }
 
     // Research operations
@@ -735,13 +796,14 @@ impl SqliteDatabase {
         sqlx::query(
             r#"
             INSERT INTO chat_conversations (
-                id, title, mode, created_at, updated_at, message_count, last_message_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                id, title, mode, goal_id, created_at, updated_at, message_count, last_message_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(conversation.id.to_string())
         .bind(&conversation.title)
         .bind(conversation.mode.to_string())
+        .bind(conversation.goal_id.to_string())
         .bind(conversation.created_at.to_rfc3339())
         .bind(conversation.updated_at.to_rfc3339())
         .bind(conversation.message_count as i64)
@@ -799,7 +861,7 @@ impl SqliteDatabase {
     pub async fn get_conversations(&self) -> Result<Vec<ChatConversationSummary>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, title, mode, message_count, last_message_at, created_at
+            SELECT id, title, mode, goal_id, message_count, last_message_at, created_at
             FROM chat_conversations 
             ORDER BY COALESCE(last_message_at, created_at) DESC
             "#,
@@ -824,6 +886,9 @@ impl SqliteDatabase {
                 })?,
                 title: row.get("title"),
                 mode,
+                goal_id: Uuid::parse_str(&row.get::<String, _>("goal_id")).map_err(|e| {
+                    AppError::Database(format!("Invalid goal UUID in conversation: {}", e))
+                })?,
                 message_count: row.get::<i64, _>("message_count") as u32,
                 last_message_at: row
                     .get::<Option<String>, _>("last_message_at")

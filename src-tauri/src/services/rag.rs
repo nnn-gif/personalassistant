@@ -1,3 +1,4 @@
+use crate::goals::GoalService;
 use crate::rag::{EnhancedDocumentProcessor, RAGSystemWrapper};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -18,6 +19,7 @@ pub async fn initialize_rag(
 #[tauri::command]
 pub async fn index_document(
     rag_system: State<'_, RAGState>,
+    goal_service: State<'_, Arc<Mutex<GoalService>>>,
     file_path: String,
     goal_id: Option<String>,
 ) -> std::result::Result<String, String> {
@@ -26,10 +28,12 @@ pub async fn index_document(
     let goal_uuid = if let Some(goal_str) = goal_id {
         Some(Uuid::parse_str(&goal_str).map_err(|e| e.to_string())?)
     } else {
-        None
+        // Use current active goal or default goal
+        let goal_service = goal_service.lock().await;
+        Some(goal_service.get_current_or_default_goal_id())
     };
 
-    println!("Indexing document synchronously: {file_path}");
+    println!("Indexing document synchronously: {} for goal: {:?}", file_path, goal_uuid);
     let document = rag
         .index_document(&file_path, goal_uuid)
         .await
@@ -39,8 +43,8 @@ pub async fn index_document(
         })?;
 
     println!(
-        "Successfully indexed document synchronously: {} with ID {}",
-        document.title, document.id
+        "Successfully indexed document synchronously: {} with ID {} for goal: {:?}",
+        document.title, document.id, goal_uuid
     );
     Ok(format!("Document indexed successfully: {}", document.id))
 }
@@ -49,11 +53,13 @@ pub async fn index_document(
 pub async fn index_document_async(
     app: AppHandle,
     rag_system: State<'_, RAGState>,
+    goal_service: State<'_, Arc<Mutex<GoalService>>>,
     file_path: String,
     goal_id: Option<String>,
     task_id: String,
 ) -> std::result::Result<String, String> {
     let rag_system = rag_system.inner().clone();
+    let goal_service = goal_service.inner().clone();
     let app_handle = app.clone();
     let task_id_clone = task_id.clone();
 
@@ -93,7 +99,9 @@ pub async fn index_document_async(
                 }
             }
         } else {
-            None
+            // Use current active goal or default goal
+            let goal_service = goal_service.lock().await;
+            Some(goal_service.get_current_or_default_goal_id())
         };
 
         // Emit processing event
@@ -113,13 +121,14 @@ pub async fn index_document_async(
         // Perform actual indexing
         let mut rag = rag_system.lock().await;
 
-        println!("Starting to index document: {file_path}");
+        println!("Starting to index document: {} for goal: {:?}", file_path, goal_uuid);
         match rag.index_document(&file_path, goal_uuid).await {
             Ok(document) => {
                 println!(
-                    "Successfully indexed document: {} with {} chunks",
+                    "Successfully indexed document: {} with {} chunks for goal: {:?}",
                     document.title,
-                    document.chunks.len()
+                    document.chunks.len(),
+                    goal_uuid
                 );
                 let _ = app_handle.emit(
                     "indexing-progress",
@@ -168,6 +177,7 @@ pub async fn index_document_async(
 #[tauri::command]
 pub async fn search_documents(
     rag_system: State<'_, RAGState>,
+    goal_service: State<'_, Arc<Mutex<GoalService>>>,
     query: String,
     goal_id: Option<String>,
     limit: Option<usize>,
@@ -177,8 +187,12 @@ pub async fn search_documents(
     let goal_uuid = if let Some(goal_str) = goal_id {
         Some(Uuid::parse_str(&goal_str).map_err(|e| e.to_string())?)
     } else {
-        None
+        // Use current active goal or default goal for search
+        let goal_service = goal_service.lock().await;
+        Some(goal_service.get_current_or_default_goal_id())
     };
+
+    println!("Searching documents with query: '{}' for goal: {:?}", query, goal_uuid);
 
     let results = rag
         .search(&query, goal_uuid, limit.unwrap_or(10))
@@ -196,6 +210,7 @@ pub async fn search_documents(
         })
         .collect();
 
+    println!("Found {} search results for goal: {:?}", response.len(), goal_uuid);
     Ok(response)
 }
 
@@ -230,6 +245,7 @@ pub async fn get_goal_context(
 #[tauri::command]
 pub async fn list_indexed_documents(
     rag_system: State<'_, RAGState>,
+    goal_service: State<'_, Arc<Mutex<GoalService>>>,
     goal_id: Option<String>,
 ) -> std::result::Result<Vec<DocumentResponse>, String> {
     let rag = rag_system.lock().await;
@@ -237,8 +253,12 @@ pub async fn list_indexed_documents(
     let goal_uuid = if let Some(goal_str) = goal_id {
         Some(Uuid::parse_str(&goal_str).map_err(|e| e.to_string())?)
     } else {
-        None
+        // Use current active goal or default goal for listing
+        let goal_service = goal_service.lock().await;
+        Some(goal_service.get_current_or_default_goal_id())
     };
+
+    println!("Listing documents for goal: {:?}", goal_uuid);
 
     let documents = rag
         .list_documents(goal_uuid)
@@ -257,6 +277,7 @@ pub async fn list_indexed_documents(
         })
         .collect();
 
+    println!("Found {} documents for goal: {:?}", response.len(), goal_uuid);
     Ok(response)
 }
 

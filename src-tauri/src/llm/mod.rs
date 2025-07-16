@@ -19,6 +19,24 @@ impl LlmClient {
         &self,
         activities: &[Activity],
     ) -> Result<ProductivityInsights> {
+        // If no activities, return helpful getting started message
+        if activities.is_empty() {
+            return Ok(ProductivityInsights {
+                summary: "No activity data available yet. Start tracking to see insights.".to_string(),
+                key_insights: vec![
+                    "Enable activity tracking to monitor productivity".to_string(),
+                    "Set up goals to track focused work time".to_string(),
+                    "Track for a few hours to get meaningful insights".to_string(),
+                ],
+                suggested_improvements: vec![
+                    "Start tracking your daily activities".to_string(),
+                    "Create goals for better focus tracking".to_string(),
+                    "Use the app for work tasks to build data".to_string(),
+                ],
+                timestamp: Utc::now(),
+            });
+        }
+
         let activities_json = serde_json::to_string_pretty(activities)?;
 
         let prompt = format!(
@@ -67,6 +85,17 @@ impl LlmClient {
         &self,
         activities: &[Activity],
     ) -> Result<ProductivityScore> {
+        // If no activities, return baseline scores
+        if activities.is_empty() {
+            return Ok(ProductivityScore {
+                overall: 0.0,
+                focus: 0.0,
+                efficiency: 0.0,
+                breaks: 0.0,
+                timestamp: Utc::now(),
+            });
+        }
+
         let activities_json = serde_json::to_string_pretty(activities)?;
 
         let prompt = format!(

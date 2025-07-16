@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Play, Pause } from 'lucide-react'
+import { Plus, Play, Pause, Edit } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import CreateGoalModal from './goals/CreateGoalModal'
+import { formatTime } from '../lib/timeUtils'
 // import GoalProgress from './goals/GoalProgress'
 
 interface Goal {
@@ -16,9 +17,16 @@ interface Goal {
   updated_at: string
 }
 
+const MASTER_GOAL_ID = "00000000-0000-0000-0000-000000000001"
+
 export default function GoalsManager() {
   const [goals, setGoals] = useState<Goal[]>([])
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const isMasterGoal = (goal: Goal) => goal.id === MASTER_GOAL_ID
 
   useEffect(() => {
     loadGoals()
@@ -26,23 +34,60 @@ export default function GoalsManager() {
 
   const loadGoals = async () => {
     try {
+      console.log('Loading goals...')
+      setLoading(true)
       const goalsData = await invoke<Goal[]>('get_goals')
-      setGoals(goalsData)
+      console.log('Goals loaded:', goalsData)
+      setGoals([...goalsData]) // Force array recreation
+      setRefreshKey(prev => prev + 1) // Force re-render
     } catch (error) {
       console.error('Failed to load goals:', error)
+    } finally {
+      setLoading(false)
     }
   }
 
   const toggleGoal = async (goal: Goal) => {
+    if (loading) return
+    
     try {
+      // Don't allow deactivating the Master Goal
+      if (goal.is_active && isMasterGoal(goal)) {
+        console.log('Cannot deactivate Master Goal')
+        return
+      }
+      
+      console.log('Toggling goal:', goal.name, 'is_active:', goal.is_active)
+      
+      // Optimistic update for immediate UI feedback
+      const newGoals = goals.map(g => {
+        if (g.id === goal.id) {
+          return { ...g, is_active: !g.is_active }
+        }
+        // If activating this goal, deactivate all others except Master Goal
+        if (!goal.is_active && g.is_active && !isMasterGoal(g)) {
+          return { ...g, is_active: false }
+        }
+        return g
+      })
+      setGoals(newGoals)
+      
       if (goal.is_active) {
+        console.log('Deactivating goal:', goal.id)
         await invoke('deactivate_goal', { goalId: goal.id })
       } else {
+        console.log('Activating goal:', goal.id)
         await invoke('activate_goal', { goalId: goal.id })
       }
+      
+      console.log('Goal toggle completed, reloading goals...')
+      // Small delay to ensure backend has processed the change
+      await new Promise(resolve => setTimeout(resolve, 100))
       await loadGoals()
     } catch (error) {
       console.error('Failed to toggle goal:', error)
+      // Revert optimistic update on error
+      await loadGoals()
     }
   }
 
@@ -60,8 +105,33 @@ export default function GoalsManager() {
     }
   }
 
+  const updateGoal = async (name: string, duration: number, apps: string[]) => {
+    if (!editingGoal) return
+    
+    try {
+      await invoke('update_goal', {
+        goalId: editingGoal.id,
+        name,
+        targetDurationMinutes: duration,
+        allowedApps: apps
+      })
+      setEditingGoal(null)
+      await loadGoals()
+    } catch (error) {
+      console.error('Failed to update goal:', error)
+    }
+  }
+
+  const handleEdit = (goal: Goal) => {
+    // Don't allow editing the Master Goal
+    if (isMasterGoal(goal)) {
+      return
+    }
+    setEditingGoal(goal)
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" key={refreshKey}>
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold">Goals</h2>
@@ -83,12 +153,17 @@ export default function GoalsManager() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
-            className="card"
+            className={`card ${isMasterGoal(goal) ? 'border-2 border-primary/30 bg-primary/5' : ''}`}
           >
             <div className="flex items-start justify-between mb-4">
               <div>
                 <div className="flex items-center space-x-2">
                   <h3 className="text-xl font-semibold">{goal.name}</h3>
+                  {isMasterGoal(goal) && (
+                    <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded">
+                      DEFAULT
+                    </span>
+                  )}
                   {goal.is_active && (
                     <span className="text-xs bg-success/20 text-success px-2 py-1 rounded">
                       ACTIVE
@@ -96,26 +171,37 @@ export default function GoalsManager() {
                   )}
                 </div>
                 <p className="text-gray-400 text-sm mt-1">
-                  Active for {goal.current_duration_minutes} minutes
+                  Active for {formatTime(goal.current_duration_minutes)}
                 </p>
               </div>
-              <button
-                onClick={() => toggleGoal(goal)}
-                className={`p-2 rounded-lg transition-colors ${
-                  goal.is_active 
-                    ? 'bg-success/20 text-success' 
-                    : 'bg-dark-bg text-gray-400 hover:text-white'
-                }`}
-              >
-                {goal.is_active ? (
-                  <>
-                    <Pause className="w-5 h-5" />
-                    <span className="sr-only">Active</span>
-                  </>
-                ) : (
-                  <Play className="w-5 h-5" />
+              <div className="flex space-x-2">
+                {!isMasterGoal(goal) && (
+                  <button
+                    onClick={() => handleEdit(goal)}
+                    className="p-2 rounded-lg bg-dark-bg text-gray-400 hover:text-white transition-colors"
+                  >
+                    <Edit className="w-5 h-5" />
+                  </button>
                 )}
-              </button>
+                <button
+                  onClick={() => toggleGoal(goal)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    goal.is_active 
+                      ? (isMasterGoal(goal) ? 'bg-primary/20 text-primary cursor-default' : 'bg-success/20 text-success')
+                      : 'bg-dark-bg text-gray-400 hover:text-white'
+                  } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={(goal.is_active && isMasterGoal(goal)) || loading}
+                >
+                  {goal.is_active ? (
+                    <>
+                      <Pause className="w-5 h-5" />
+                      <span className="sr-only">Active</span>
+                    </>
+                  ) : (
+                    <Play className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Remove progress bar since we don't have duration-based progress anymore */}
@@ -123,14 +209,20 @@ export default function GoalsManager() {
             <div className="mt-4">
               <p className="text-sm text-gray-400 mb-2">Allowed Apps:</p>
               <div className="flex flex-wrap gap-2">
-                {goal.allowed_apps.map((app) => (
-                  <span
-                    key={app}
-                    className="px-2 py-1 bg-dark-bg rounded text-xs text-gray-300"
-                  >
-                    {app}
+                {isMasterGoal(goal) ? (
+                  <span className="px-2 py-1 bg-primary/20 text-primary rounded text-xs">
+                    All applications
                   </span>
-                ))}
+                ) : (
+                  goal.allowed_apps.map((app) => (
+                    <span
+                      key={app}
+                      className="px-2 py-1 bg-dark-bg rounded text-xs text-gray-300"
+                    >
+                      {app}
+                    </span>
+                  ))
+                )}
               </div>
             </div>
           </motion.div>
@@ -153,6 +245,14 @@ export default function GoalsManager() {
         <CreateGoalModal
           onClose={() => setShowCreateModal(false)}
           onCreate={createGoal}
+        />
+      )}
+
+      {editingGoal && (
+        <CreateGoalModal
+          onClose={() => setEditingGoal(null)}
+          onCreate={updateGoal}
+          editingGoal={editingGoal}
         />
       )}
     </div>

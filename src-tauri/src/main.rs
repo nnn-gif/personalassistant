@@ -202,6 +202,8 @@ fn main() {
             services::activity::get_activity_history,
             services::activity::start_tracking,
             services::activity::stop_tracking,
+            services::activity::get_tracking_stats,
+            services::activity::get_today_stats,
             // Browser AI commands
             services::browser_ai::test_research,
             services::browser_ai::start_research,
@@ -218,6 +220,7 @@ fn main() {
             services::chat::update_chat_conversation_title,
             // Goal commands
             services::goals::create_goal,
+            services::goals::update_goal,
             services::goals::activate_goal,
             services::goals::deactivate_goal,
             services::goals::get_goals,

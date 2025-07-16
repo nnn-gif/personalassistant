@@ -7,6 +7,7 @@ pub struct ChatConversation {
     pub id: Uuid,
     pub title: String,
     pub mode: ChatMode,
+    pub goal_id: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub message_count: u32,
@@ -46,12 +47,13 @@ impl std::fmt::Display for ChatMode {
 }
 
 impl ChatConversation {
-    pub fn new(title: String, mode: ChatMode) -> Self {
+    pub fn new(title: String, mode: ChatMode, goal_id: Uuid) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             title,
             mode,
+            goal_id,
             created_at: now,
             updated_at: now,
             message_count: 0,
@@ -132,6 +134,7 @@ pub struct ChatConversationSummary {
     pub id: Uuid,
     pub title: String,
     pub mode: ChatMode,
+    pub goal_id: Uuid,
     pub message_count: u32,
     pub last_message_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -143,6 +146,7 @@ impl From<ChatConversation> for ChatConversationSummary {
             id: conversation.id,
             title: conversation.title,
             mode: conversation.mode,
+            goal_id: conversation.goal_id,
             message_count: conversation.message_count,
             last_message_at: conversation.last_message_at,
             created_at: conversation.created_at,

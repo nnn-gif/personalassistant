@@ -3,9 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, ChevronDown } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 
+interface Goal {
+  id: string
+  name: string
+  target_duration_minutes: number
+  allowed_apps: string[]
+  current_duration_minutes: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 interface CreateGoalModalProps {
   onClose: () => void
   onCreate: (name: string, duration: number, apps: string[]) => void
+  editingGoal?: Goal
 }
 
 interface Activity {
@@ -14,9 +26,9 @@ interface Activity {
   }
 }
 
-export default function CreateGoalModal({ onClose, onCreate }: CreateGoalModalProps) {
-  const [name, setName] = useState('')
-  const [apps, setApps] = useState<string[]>([])
+export default function CreateGoalModal({ onClose, onCreate, editingGoal }: CreateGoalModalProps) {
+  const [name, setName] = useState(editingGoal?.name || '')
+  const [apps, setApps] = useState<string[]>(editingGoal?.allowed_apps || [])
   const [newApp, setNewApp] = useState('')
   const [existingApps, setExistingApps] = useState<string[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
@@ -90,7 +102,9 @@ export default function CreateGoalModal({ onClose, onCreate }: CreateGoalModalPr
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold">Create New Goal</h3>
+            <h3 className="text-xl font-semibold">
+              {editingGoal ? 'Edit Goal' : 'Create New Goal'}
+            </h3>
             <button
               onClick={onClose}
               className="p-1 hover:bg-dark-bg rounded-lg transition-colors"
@@ -192,7 +206,7 @@ export default function CreateGoalModal({ onClose, onCreate }: CreateGoalModalPr
               disabled={!name.trim() || apps.length === 0}
               className="btn-primary flex-1"
             >
-              Create Goal
+              {editingGoal ? 'Update Goal' : 'Create Goal'}
             </button>
           </div>
         </motion.div>

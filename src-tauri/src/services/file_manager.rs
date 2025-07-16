@@ -1,3 +1,4 @@
+use crate::goals::GoalService;
 use mime_guess::MimeGuess;
 use std::path::Path;
 use std::sync::Arc;
@@ -88,6 +89,7 @@ pub async fn get_file_info(file_path: String) -> std::result::Result<FileInfo, S
 #[tauri::command]
 pub async fn index_multiple_documents(
     rag_system: State<'_, Arc<Mutex<crate::rag::RAGSystem>>>,
+    goal_service: State<'_, Arc<Mutex<GoalService>>>,
     file_paths: Vec<String>,
     goal_id: Option<String>,
 ) -> std::result::Result<IndexingResult, String> {
@@ -95,8 +97,12 @@ pub async fn index_multiple_documents(
     let goal_uuid = if let Some(goal_str) = goal_id {
         Some(Uuid::parse_str(&goal_str).map_err(|e| e.to_string())?)
     } else {
-        None
+        // Use current active goal or default goal
+        let goal_service = goal_service.lock().await;
+        Some(goal_service.get_current_or_default_goal_id())
     };
+
+    println!("Indexing {} documents for goal: {:?}", file_paths.len(), goal_uuid);
 
     let mut successful = Vec::new();
     let mut failed = Vec::new();
@@ -104,6 +110,7 @@ pub async fn index_multiple_documents(
     for file_path in file_paths {
         match rag.index_document(&file_path, goal_uuid).await {
             Ok(document) => {
+                println!("Successfully indexed: {} for goal: {:?}", document.title, goal_uuid);
                 successful.push(IndexedDocumentInfo {
                     id: document.id.to_string(),
                     path: file_path,
@@ -112,6 +119,7 @@ pub async fn index_multiple_documents(
                 });
             }
             Err(e) => {
+                eprintln!("Failed to index {}: {}", file_path, e);
                 failed.push(FailedIndexInfo {
                     path: file_path,
                     error: e.to_string(),
@@ -121,6 +129,8 @@ pub async fn index_multiple_documents(
     }
 
     let total_processed = successful.len() + failed.len();
+    println!("Batch indexing completed: {} successful, {} failed for goal: {:?}", 
+             successful.len(), failed.len(), goal_uuid);
 
     Ok(IndexingResult {
         successful,

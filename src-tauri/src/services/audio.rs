@@ -1,10 +1,12 @@
 use crate::audio::transcriber::{AudioTranscriber, TranscriptionMethod};
 use crate::audio::{AudioProcessor, SimpleAudioRecorder};
 use crate::error::Result;
+use crate::goals::GoalService;
 use crate::llm::LlmClient;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioDeviceInfo {
@@ -33,11 +35,21 @@ pub async fn start_audio_recording(
     devices: Vec<String>,
     _title: String,
     recorder: State<'_, Arc<SimpleAudioRecorder>>,
+    goal_service: State<'_, Arc<Mutex<GoalService>>>,
     _app: tauri::AppHandle,
 ) -> Result<String> {
     let device_name = devices.first().cloned();
-    let info = recorder.start_recording(device_name)?;
+    
+    // Get the current active goal or default goal
+    let goal_id = {
+        let goal_service = goal_service.lock().await;
+        Some(goal_service.get_current_or_default_goal_id().to_string())
+    };
+    
+    let info = recorder.start_recording_with_goal(device_name, goal_id)?;
 
+    println!("Started audio recording with goal: {:?}", info);
+    
     // Return recording info as JSON
     Ok(serde_json::to_string(&info)?)
 }
@@ -45,6 +57,13 @@ pub async fn start_audio_recording(
 #[tauri::command]
 pub async fn stop_audio_recording(recorder: State<'_, Arc<SimpleAudioRecorder>>) -> Result<String> {
     let recording = recorder.stop_recording()?;
+    
+    if let Some(ref goal_id) = recording.goal_id {
+        println!("Stopped audio recording: {} associated with goal: {}", recording.id, goal_id);
+    } else {
+        println!("Stopped audio recording: {} (no goal association)", recording.id);
+    }
+    
     Ok(serde_json::to_string(&recording)?)
 }
 

@@ -1,6 +1,7 @@
 use crate::database::SqliteDatabase;
 use crate::error::Result;
 use crate::models::{ChatConversation, ChatMessage, ChatMode, ChatConversationSummary};
+use crate::goals::GoalService;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -9,6 +10,7 @@ use uuid::Uuid;
 #[tauri::command]
 pub async fn create_chat_conversation(
     db: State<'_, Arc<Mutex<SqliteDatabase>>>,
+    goal_service: State<'_, Arc<Mutex<GoalService>>>,
     title: String,
     mode: String,
 ) -> std::result::Result<String, String> {
@@ -19,13 +21,19 @@ pub async fn create_chat_conversation(
         _ => ChatMode::General,
     };
 
-    let conversation = ChatConversation::new(title, chat_mode);
+    // Get the current active goal or default goal
+    let goal_id = {
+        let goal_service = goal_service.lock().await;
+        goal_service.get_current_or_default_goal_id()
+    };
+
+    let conversation = ChatConversation::new(title, chat_mode, goal_id);
     let conversation_id = conversation.id;
 
     let db = db.lock().await;
     match db.create_conversation(&conversation).await {
         Ok(_) => {
-            println!("Created chat conversation: {}", conversation_id);
+            println!("Created chat conversation: {} for goal: {}", conversation_id, goal_id);
             Ok(conversation_id.to_string())
         }
         Err(e) => {

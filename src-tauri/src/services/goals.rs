@@ -54,3 +54,18 @@ pub async fn get_goal_progress(
     let service = service.lock().await;
     Ok(service.get_goal(&goal_id).cloned())
 }
+
+#[tauri::command]
+pub async fn update_goal(
+    service: State<'_, Arc<Mutex<GoalService>>>,
+    goal_id: Uuid,
+    name: String,
+    target_duration_minutes: u32,
+    allowed_apps: Vec<String>,
+) -> Result<Goal> {
+    let mut service = service.lock().await;
+    let goal = service
+        .update_goal(goal_id, name, target_duration_minutes, allowed_apps)
+        .await?;
+    Ok(goal)
+}

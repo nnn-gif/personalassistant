@@ -4,6 +4,7 @@ import { TrendingUp, Clock, Target, Brain } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import ProductivityChart from './charts/ProductivityChart'
 import ActivityTimeline from './charts/ActivityTimeline'
+import { formatDecimalHours } from '../lib/timeUtils'
 
 interface ProductivityScore {
   overall: number
@@ -41,7 +42,7 @@ function StatCard({ title, value, icon: Icon, color }: StatCardProps) {
 export default function Dashboard() {
   const [productivityScore, setProductivityScore] = useState<ProductivityScore | null>(null)
   const [activeGoals, setActiveGoals] = useState(0)
-  const [todayHours] = useState(0)
+  const [todayHours, setTodayHours] = useState(0)
   const [insights, setInsights] = useState<string[]>([])
 
   useEffect(() => {
@@ -50,17 +51,60 @@ export default function Dashboard() {
 
   const loadDashboardData = async () => {
     try {
+      console.log('Loading dashboard data...')
+      
+      // Debug: Check tracking stats first
+      const trackingStats = await invoke<any>('get_tracking_stats')
+      console.log('Tracking stats:', trackingStats)
+
       // Get productivity score
-      const score = await invoke<ProductivityScore>('get_productivity_score', { hours: 8 })
-      setProductivityScore(score)
+      try {
+        const score = await invoke<ProductivityScore>('get_productivity_score', { hours: 8 })
+        console.log('Productivity score:', score)
+        setProductivityScore(score)
+      } catch (error) {
+        console.error('Failed to get productivity score:', error)
+        // Fallback to basic calculation
+        const currentScore = await invoke<number>('get_current_productivity_score')
+        setProductivityScore({
+          overall: currentScore,
+          focus: currentScore * 0.9,
+          efficiency: currentScore * 0.8,
+          breaks: currentScore * 0.7
+        })
+      }
 
       // Get goals
-      const goals = await invoke<any[]>('get_goals')
-      setActiveGoals(goals.filter(g => g.is_active).length)
+      try {
+        const goals = await invoke<any[]>('get_goals')
+        console.log('Goals:', goals)
+        setActiveGoals(goals.filter(g => g.is_active).length)
+      } catch (error) {
+        console.error('Failed to get goals:', error)
+        setActiveGoals(0)
+      }
 
       // Get productivity insights
-      const insightsData = await invoke<any>('get_productivity_insights', { hours: 8 })
-      setInsights(insightsData.key_insights || [])
+      try {
+        const insightsData = await invoke<any>('get_productivity_insights', { hours: 8 })
+        console.log('Insights:', insightsData)
+        setInsights(insightsData.key_insights || [])
+      } catch (error) {
+        console.error('Failed to get insights:', error)
+        setInsights(['Start tracking to see insights'])
+      }
+
+      // Get today's hours from database
+      try {
+        const todayStats = await invoke<any>('get_today_stats')
+        console.log('Today stats:', todayStats)
+        const hours = todayStats.total_minutes / 60
+        setTodayHours(hours)
+        console.log('Today\'s hours:', hours)
+      } catch (error) {
+        console.error('Failed to get today stats:', error)
+        setTodayHours(0)
+      }
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
     }
@@ -94,7 +138,7 @@ export default function Dashboard() {
         />
         <StatCard
           title="Today's Hours"
-          value={`${todayHours}h`}
+          value={formatDecimalHours(todayHours)}
           icon={Clock}
           color="bg-warning/20 text-warning"
         />
