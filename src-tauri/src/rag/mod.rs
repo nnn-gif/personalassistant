@@ -69,7 +69,7 @@ pub struct LegacyRAGSystem {
 
 // Wrapper enum to handle both Qdrant and legacy systems
 pub enum RAGSystemWrapper {
-    Qdrant(RAGSystem),
+    Qdrant(Box<RAGSystem>),
     Legacy(LegacyRAGSystem),
 }
 
@@ -85,7 +85,7 @@ impl RAGSystem {
                 store
             }
             Err(e) => {
-                eprintln!("Failed to connect to Qdrant: {}. Please ensure Qdrant is running on localhost:6333", e);
+                eprintln!("Failed to connect to Qdrant: {e}. Please ensure Qdrant is running on localhost:6333");
                 return Err(e);
             }
         };
@@ -109,17 +109,16 @@ impl RAGSystem {
             Ok(qdrant_store) => {
                 println!("Successfully connected to Qdrant vector database");
                 let text_chunker = TextChunker::new();
-                Ok(RAGSystemWrapper::Qdrant(Self {
+                Ok(RAGSystemWrapper::Qdrant(Box::new(Self {
                     embedding_model,
                     document_processor,
                     vector_store: qdrant_store,
                     text_chunker,
-                }))
+                })))
             }
             Err(e) => {
                 eprintln!(
-                    "Failed to connect to Qdrant: {}. Falling back to in-memory vector store",
-                    e
+                    "Failed to connect to Qdrant: {e}. Falling back to in-memory vector store"
                 );
                 let vector_store = VectorStore::new().await?;
                 let text_chunker = TextChunker::new();
@@ -157,7 +156,7 @@ impl RAGSystem {
         file_path: &str,
         goal_id: Option<Uuid>,
     ) -> Result<Document> {
-        println!("🚀 Starting document indexing for: {}", file_path);
+        println!("🚀 Starting document indexing for: {file_path}");
 
         // Process document
         println!("📄 Processing document content...");

@@ -28,7 +28,7 @@ impl QdrantVectorStore {
         // Try to connect to local Qdrant instance
         let client = Qdrant::from_url("http://localhost:6333")
             .build()
-            .map_err(|e| AppError::VectorStore(format!("Failed to connect to Qdrant: {}", e)))?;
+            .map_err(|e| AppError::VectorStore(format!("Failed to connect to Qdrant: {e}")))?;
 
         let store = Self {
             client,
@@ -51,7 +51,7 @@ impl QdrantVectorStore {
             .client
             .list_collections()
             .await
-            .map_err(|e| AppError::VectorStore(format!("Failed to list collections: {}", e)))?;
+            .map_err(|e| AppError::VectorStore(format!("Failed to list collections: {e}")))?;
 
         let collection_exists = collections
             .collections
@@ -92,12 +92,12 @@ impl QdrantVectorStore {
                 })
                 .await
                 .map_err(|e| {
-                    AppError::VectorStore(format!("Failed to create collection: {}", e))
+                    AppError::VectorStore(format!("Failed to create collection: {e}"))
                 })?;
 
-            println!("Created Qdrant collection: {}", COLLECTION_NAME);
+            println!("Created Qdrant collection: {COLLECTION_NAME}");
         } else {
-            println!("Qdrant collection {} already exists", COLLECTION_NAME);
+            println!("Qdrant collection {COLLECTION_NAME} already exists");
         }
 
         Ok(())
@@ -133,10 +133,10 @@ impl QdrantVectorStore {
                     })
                     .await
                     .map_err(|e| {
-                        AppError::VectorStore(format!("Failed to load data to Qdrant: {}", e))
+                        AppError::VectorStore(format!("Failed to load data to Qdrant: {e}"))
                     })?;
 
-                println!("Loaded {} chunks to Qdrant", points_len);
+                println!("Loaded {points_len} chunks to Qdrant");
             }
         }
 
@@ -177,7 +177,7 @@ impl QdrantVectorStore {
                     shard_key_selector: None,
                 })
                 .await
-                .map_err(|e| AppError::VectorStore(format!("Failed to store in Qdrant: {}", e)))?;
+                .map_err(|e| AppError::VectorStore(format!("Failed to store in Qdrant: {e}")))?;
         }
 
         Ok(())
@@ -246,7 +246,7 @@ impl QdrantVectorStore {
                 sparse_indices: None,
             })
             .await
-            .map_err(|e| AppError::VectorStore(format!("Failed to search in Qdrant: {}", e)))?;
+            .map_err(|e| AppError::VectorStore(format!("Failed to search in Qdrant: {e}")))?;
 
         let mut results = Vec::new();
         for scored_point in search_result.result {
@@ -337,7 +337,7 @@ impl QdrantVectorStore {
                 timeout: None,
             })
             .await
-            .map_err(|e| AppError::VectorStore(format!("Failed to scroll in Qdrant: {}", e)))?;
+            .map_err(|e| AppError::VectorStore(format!("Failed to scroll in Qdrant: {e}")))?;
 
         let mut results = Vec::new();
         for point in scroll_result.result {
@@ -441,7 +441,7 @@ impl QdrantVectorStore {
                 shard_key_selector: None,
             })
             .await
-            .map_err(|e| AppError::VectorStore(format!("Failed to delete from Qdrant: {}", e)))?;
+            .map_err(|e| AppError::VectorStore(format!("Failed to delete from Qdrant: {e}")))?;
 
         Ok(())
     }
@@ -528,7 +528,7 @@ fn create_chunk_payload(document: &Document, chunk: &DocumentChunk) -> HashMap<S
 
     // Add chunk metadata
     for (key, value) in &chunk.metadata {
-        payload.insert(format!("meta_{}", key), Value::from(value.clone()));
+        payload.insert(format!("meta_{key}"), Value::from(value.clone()));
     }
 
     payload

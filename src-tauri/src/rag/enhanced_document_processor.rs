@@ -172,12 +172,12 @@ impl EnhancedDocumentProcessor {
     pub async fn process_file(&self, file_path: &str) -> Result<ProcessedDocument> {
         let start_time = std::time::Instant::now();
 
-        println!("📄 Starting document processing for: {}", file_path);
+        println!("📄 Starting document processing for: {file_path}");
 
         let path = Path::new(file_path);
 
         // Validate file
-        println!("🔍 Validating file: {}", file_path);
+        println!("🔍 Validating file: {file_path}");
         self.validate_file(path)?;
         println!("✅ File validation passed");
 
@@ -190,7 +190,7 @@ impl EnhancedDocumentProcessor {
         );
 
         let mime_type = MimeGuess::from_path(path).first_or_octet_stream();
-        println!("🔍 Detected MIME type: {}", mime_type);
+        println!("🔍 Detected MIME type: {mime_type}");
 
         // Extract content
         println!("📝 Extracting content from file...");
@@ -213,7 +213,7 @@ impl EnhancedDocumentProcessor {
             println!("🔍 Detecting language...");
             let detected = self.detect_language(&cleaned_content);
             if let Some(ref lang) = detected {
-                println!("✅ Language detected: {}", lang);
+                println!("✅ Language detected: {lang}");
             } else {
                 println!("❓ Language detection: unknown");
             }
@@ -229,9 +229,9 @@ impl EnhancedDocumentProcessor {
         let char_count = cleaned_content.chars().count();
 
         println!("📈 Processing statistics:");
-        println!("   - Processing time: {}ms", processing_time);
-        println!("   - Word count: {}", word_count);
-        println!("   - Character count: {}", char_count);
+        println!("   - Processing time: {processing_time}ms");
+        println!("   - Word count: {word_count}");
+        println!("   - Character count: {char_count}");
 
         let mut doc_metadata = HashMap::new();
         doc_metadata.insert("file_name".to_string(), metadata.file_name.clone());
@@ -267,7 +267,7 @@ impl EnhancedDocumentProcessor {
 
         println!("📋 Building final document structure...");
         let title = Self::generate_title(&metadata.file_name, &cleaned_content);
-        println!("📝 Generated title: {}", title);
+        println!("📝 Generated title: {title}");
 
         let processed_doc = ProcessedDocument {
             title,
@@ -318,7 +318,7 @@ impl EnhancedDocumentProcessor {
         }
 
         let metadata = fs::metadata(path)
-            .map_err(|e| AppError::ProcessingError(format!("Cannot read file metadata: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Cannot read file metadata: {e}")))?;
 
         if metadata.len() > self.max_file_size {
             return Err(AppError::ProcessingError(format!(
@@ -347,7 +347,7 @@ impl EnhancedDocumentProcessor {
         let file_type = mime_type.to_string();
 
         let fs_metadata = fs::metadata(path)
-            .map_err(|e| AppError::ProcessingError(format!("Cannot read file metadata: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Cannot read file metadata: {e}")))?;
 
         let file_size = fs_metadata.len();
 
@@ -380,7 +380,7 @@ impl EnhancedDocumentProcessor {
     }
 
     async fn extract_content(&self, path: &Path, mime_type: &mime::Mime) -> Result<String> {
-        println!("🔧 Processing content based on MIME type: {}", mime_type);
+        println!("🔧 Processing content based on MIME type: {mime_type}");
 
         match mime_type.type_() {
             mime::TEXT => {
@@ -447,7 +447,7 @@ impl EnhancedDocumentProcessor {
     async fn process_text_file(&self, path: &Path) -> Result<String> {
         println!("📖 Reading text file...");
         let content = fs::read_to_string(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading text file: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading text file: {e}")))?;
 
         println!("📊 Text file read - Length: {} characters", content.len());
 
@@ -473,7 +473,7 @@ impl EnhancedDocumentProcessor {
 
         println!("📑 Loading PDF document...");
         let doc = Document::load(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error loading PDF: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error loading PDF: {e}")))?;
 
         let mut text = String::new();
         let pages = doc.get_pages();
@@ -530,7 +530,7 @@ impl EnhancedDocumentProcessor {
                                 }
                             }
                             Err(e) => {
-                                println!("❌ pdf-extract fallback failed: {}", e);
+                                println!("❌ pdf-extract fallback failed: {e}");
                             }
                         }
                         continue;
@@ -589,11 +589,11 @@ impl EnhancedDocumentProcessor {
     }
 
     async fn extract_pdf_with_fallback(&self, file_path: &str) -> Result<String> {
-        println!("🔄 Using pdf-extract as fallback for: {}", file_path);
+        println!("🔄 Using pdf-extract as fallback for: {file_path}");
 
         // Use pdf-extract which handles more PDF formats
         let text = pdf_extract::extract_text(file_path)
-            .map_err(|e| AppError::ProcessingError(format!("pdf-extract failed: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("pdf-extract failed: {e}")))?;
 
         println!("✅ pdf-extract extracted {} characters", text.len());
 
@@ -634,23 +634,23 @@ impl EnhancedDocumentProcessor {
     async fn process_docx_file(&self, path: &Path) -> Result<String> {
         println!("📄 Opening DOCX file...");
         let file = std::fs::File::open(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error opening DOCX file: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error opening DOCX file: {e}")))?;
 
         println!("📦 Reading DOCX archive...");
         let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading DOCX archive: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading DOCX archive: {e}")))?;
 
         // Read document.xml
         println!("📄 Extracting document.xml...");
         let mut document_xml = archive
             .by_name("word/document.xml")
-            .map_err(|e| AppError::ProcessingError(format!("Error reading document.xml: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading document.xml: {e}")))?;
 
         println!("📖 Reading XML content...");
         let mut xml_content = String::new();
         document_xml
             .read_to_string(&mut xml_content)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading XML content: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading XML content: {e}")))?;
 
         println!("📊 XML content read - {} characters", xml_content.len());
 
@@ -731,7 +731,7 @@ impl EnhancedDocumentProcessor {
 
     async fn process_json_file(&self, path: &Path) -> Result<String> {
         let content = fs::read_to_string(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading JSON file: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading JSON file: {e}")))?;
 
         // Pretty-print JSON for better readability
         match serde_json::from_str::<serde_json::Value>(&content) {
@@ -748,7 +748,7 @@ impl EnhancedDocumentProcessor {
 
     async fn process_xml_file(&self, path: &Path) -> Result<String> {
         let content = fs::read_to_string(path)
-            .map_err(|e| AppError::ProcessingError(format!("Error reading XML file: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Error reading XML file: {e}")))?;
 
         // For XML files, we might want to extract just the text content
         // For now, return the full XML
@@ -808,8 +808,8 @@ impl EnhancedDocumentProcessor {
         cleaned = cleaned.trim().to_string();
 
         println!("✅ Content cleaning completed:");
-        println!("   Original: {} characters", original_length);
-        println!("   Final: {} characters", final_length);
+        println!("   Original: {original_length} characters");
+        println!("   Final: {final_length} characters");
         println!(
             "   Reduction: {} characters ({:.1}%)",
             original_length - final_length,
@@ -922,7 +922,7 @@ impl EnhancedDocumentProcessor {
     pub fn get_file_stats(&self, file_path: &str) -> Result<HashMap<String, String>> {
         let path = Path::new(file_path);
         let metadata = fs::metadata(path)
-            .map_err(|e| AppError::ProcessingError(format!("Cannot read file metadata: {}", e)))?;
+            .map_err(|e| AppError::ProcessingError(format!("Cannot read file metadata: {e}")))?;
 
         let mut stats = HashMap::new();
         stats.insert("size".to_string(), metadata.len().to_string());

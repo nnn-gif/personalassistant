@@ -29,14 +29,13 @@ pub async fn index_document(
         None
     };
 
-    println!("Indexing document synchronously: {}", file_path);
+    println!("Indexing document synchronously: {file_path}");
     let document = rag
         .index_document(&file_path, goal_uuid)
         .await
         .map_err(|e| {
             eprintln!(
-                "Failed to index document synchronously {}: {}",
-                file_path, e
+                "Failed to index document synchronously {file_path}: {e}"
             );
             e.to_string()
         })?;
@@ -89,7 +88,7 @@ pub async fn index_document_async(
                             progress: 0,
                             total: 1,
                             phase: "Error".to_string(),
-                            error: Some(format!("Invalid goal ID: {}", e)),
+                            error: Some(format!("Invalid goal ID: {e}")),
                         },
                     );
                     return;
@@ -116,7 +115,7 @@ pub async fn index_document_async(
         // Perform actual indexing
         let mut rag = rag_system.lock().await;
 
-        println!("Starting to index document: {}", file_path);
+        println!("Starting to index document: {file_path}");
         match rag.index_document(&file_path, goal_uuid).await {
             Ok(document) => {
                 println!(
@@ -148,7 +147,7 @@ pub async fn index_document_async(
                 );
             }
             Err(e) => {
-                eprintln!("Failed to index document {}: {}", file_path, e);
+                eprintln!("Failed to index document {file_path}: {e}");
                 let _ = app_handle.emit(
                     "indexing-progress",
                     IndexingProgress {
@@ -165,7 +164,7 @@ pub async fn index_document_async(
         }
     });
 
-    Ok(format!("Indexing started with task ID: {}", task_id))
+    Ok(format!("Indexing started with task ID: {task_id}"))
 }
 
 #[tauri::command]
@@ -418,7 +417,7 @@ pub async fn cleanup_corrupted_documents(
                     removed_ids.push(document.id.to_string());
                 }
                 Err(e) => {
-                    eprintln!("Failed to remove document {}: {}", document.id, e);
+                    eprintln!("Failed to remove document {}: {e}", document.id);
                 }
             }
         }
@@ -455,15 +454,14 @@ pub async fn clear_vector_database(
                 println!("Removed document: {} ({})", document.title, document.id);
             }
             Err(e) => {
-                eprintln!("Failed to remove document {}: {}", document.id, e);
-                failed_removals.push(format!("{}: {}", document.title, e));
+                eprintln!("Failed to remove document {}: {e}", document.id);
+                failed_removals.push(format!("{}: {e}", document.title));
             }
         }
     }
 
     println!(
-        "Vector database cleared: {} documents removed, {} failed",
-        removed_count,
+        "Vector database cleared: {removed_count} documents removed, {} failed",
         failed_removals.len()
     );
 

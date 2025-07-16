@@ -54,7 +54,7 @@ pub async fn chat_with_documents(
 
     let limit = limit.unwrap_or(5);
 
-    println!("Starting document chat with query: {}", query);
+    println!("Starting document chat with query: {query}");
 
     // Get recent activity context
     let activity_context = {
@@ -66,15 +66,15 @@ pub async fn chat_with_documents(
     let rag = rag_system.lock().await;
     println!("Acquired RAG system lock, searching for documents...");
     let search_results = rag.search(&query, goal_uuid, limit).await.map_err(|e| {
-        eprintln!("Failed to search documents: {}", e);
-        format!("Search failed: {}", e)
+        eprintln!("Failed to search documents: {e}");
+        format!("Search failed: {e}")
     })?;
 
-    println!("Found {} search results", search_results.len());
+    println!("Found {len} search results", len = search_results.len());
 
     // Log search results for debugging
     for (i, result) in search_results.iter().enumerate() {
-        println!("Search Result {}: (score: {:.3})", i + 1, result.score);
+        println!("Search Result {num}: (score: {score:.3})", num = i + 1, score = result.score);
         println!("Document ID: {}", result.document_id);
         println!(
             "Content: {}",
@@ -82,8 +82,8 @@ pub async fn chat_with_documents(
         );
         if result.content.len() > 200 {
             println!(
-                "... (truncated, full length: {} chars)",
-                result.content.len()
+                "... (truncated, full length: {len} chars)",
+                len = result.content.len()
             );
         }
         println!("---");
@@ -97,9 +97,9 @@ pub async fn chat_with_documents(
         context.push_str("=== DOCUMENT CONTEXT ===\n");
         for (i, result) in search_results.iter().enumerate() {
             context.push_str(&format!(
-                "--- Document {} ---\n{}\n\n",
-                i + 1,
-                result.content
+                "--- Document {num} ---\n{content}\n\n",
+                num = i + 1,
+                content = result.content
             ));
         }
     }
@@ -111,21 +111,20 @@ pub async fn chat_with_documents(
         for (i, activity) in activity_context.iter().enumerate() {
             let duration_str = if activity.duration_seconds >= 60 {
                 format!(
-                    "{}m{}s",
-                    activity.duration_seconds / 60,
-                    activity.duration_seconds % 60
+                    "{minutes}m{seconds}s",
+                    minutes = activity.duration_seconds / 60,
+                    seconds = activity.duration_seconds % 60
                 )
             } else {
                 format!("{}s", activity.duration_seconds)
             };
 
             context.push_str(&format!(
-                "{}. {} - {} ({}) - Duration: {}\n",
-                i + 1,
-                activity.timestamp.format("%H:%M"),
-                activity.app_usage.app_name,
-                activity.app_usage.window_title,
-                duration_str
+                "{num}. {time} - {app} ({window}) - Duration: {duration_str}\n",
+                num = i + 1,
+                time = activity.timestamp.format("%H:%M"),
+                app = activity.app_usage.app_name,
+                window = activity.app_usage.window_title
             ));
         }
         context.push_str("\n");
@@ -134,39 +133,37 @@ pub async fn chat_with_documents(
     // Generate response using LLM with RAG context
     let prompt = if context.is_empty() {
         format!(
-            "I don't have any relevant documents to answer your question: \"{}\"\n\n\
+            "I don't have any relevant documents to answer your question: \"{query}\"\n\n\
             Please provide a helpful response explaining that no relevant documents were found \
-            and suggest how the user might get better results (such as indexing more documents or refining their query).",
-            query
+            and suggest how the user might get better results (such as indexing more documents or refining their query)."
         )
     } else {
         format!(
             "You are a local personal assistant running on the user's own device. \
             The user has indexed their personal documents into your local knowledge base and you have access to their activity data. \
-            Answer the user's question using the available context: \"{}\"\n\n\
-            Available Context:\n{}\n\n\
+            Answer the user's question using the available context: \"{query}\"\n\n\
+            Available Context:\n{context}\n\n\
             This information includes the user's personal documents and recent activity data stored locally on their device. \
             You are running locally and have full access to help the user with their own information. \
             Use both document content and activity context to provide a comprehensive and helpful answer. \
-            When referencing activities, be specific about apps, times, and durations when relevant.",
-            query, context
+            When referencing activities, be specific about apps, times, and durations when relevant."
         )
     };
 
-    println!("Sending prompt to LLM (length: {} chars)", prompt.len());
+    println!("Sending prompt to LLM (length: {len} chars)", len = prompt.len());
     let response_text = if let Some(model) = model {
         llm.send_request_with_model(&prompt, &model).await
     } else {
         llm.send_request(&prompt).await
     }
     .map_err(|e| {
-        eprintln!("LLM request failed: {}", e);
-        format!("LLM error: {}", e)
+        eprintln!("LLM request failed: {e}");
+        format!("LLM error: {e}")
     })?;
 
     println!(
-        "Received LLM response (length: {} chars)",
-        response_text.len()
+        "Received LLM response (length: {len} chars)",
+        len = response_text.len()
     );
 
     Ok(ChatResponse {
@@ -203,6 +200,6 @@ pub async fn get_available_models(
 ) -> std::result::Result<Vec<String>, String> {
     match llm.get_available_models().await {
         Ok(models) => Ok(models),
-        Err(e) => Err(format!("Failed to get available models: {}", e)),
+        Err(e) => Err(format!("Failed to get available models: {e}")),
     }
 }

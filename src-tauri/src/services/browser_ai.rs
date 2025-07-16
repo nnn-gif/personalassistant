@@ -20,14 +20,14 @@ pub async fn start_research(
     agent: State<'_, Arc<Mutex<BrowserAIAgent>>>,
     query: String,
 ) -> Result<Uuid> {
-    println!("Starting research for query: {}", query);
+    println!("Starting research for query: {query}");
 
     let (tx, mut rx) = mpsc::channel(100);
 
     let mut agent = agent.lock().await;
     let task_id = agent.start_research(query, tx).await?;
 
-    println!("Research task created with ID: {}", task_id);
+    println!("Research task created with ID: {task_id}");
 
     // Spawn task to forward progress events to frontend
     tauri::async_runtime::spawn(async move {
@@ -35,7 +35,7 @@ pub async fn start_research(
             println!("Emitting progress: {:?}", progress.status);
             match app.emit("browser-ai-progress", &progress) {
                 Ok(_) => println!("Progress event emitted successfully"),
-                Err(e) => println!("Failed to emit progress: {:?}", e),
+                Err(e) => println!("Failed to emit progress: {e:?}"),
             }
         }
     });
@@ -60,13 +60,13 @@ pub async fn save_research(
     tags: Vec<String>,
     notes: Option<String>,
 ) -> Result<SavedResearchTask> {
-    println!("save_research called with task_id: {}", task_id);
+    println!("save_research called with task_id: {task_id}");
 
     let agent = agent.lock().await;
     let task = agent
         .get_task(&task_id)
         .ok_or_else(|| {
-            eprintln!("Research task not found: {}", task_id);
+            eprintln!("Research task not found: {task_id}");
             crate::error::AppError::NotFound("Research task not found".into())
         })?
         .clone();
@@ -81,7 +81,7 @@ pub async fn save_research(
         saved_at: Utc::now(),
     };
 
-    println!("Saving research task with tags: {:?}", tags);
+    println!("Saving research task with tags: {tags:?}");
 
     // Save to database
     let db = db.lock().await;
@@ -91,7 +91,7 @@ pub async fn save_research(
             Ok(saved_task)
         }
         Err(e) => {
-            eprintln!("Failed to save research: {}", e);
+            eprintln!("Failed to save research: {e}");
             Err(e)
         }
     }
@@ -102,7 +102,7 @@ pub async fn get_saved_research(
     db: State<'_, Arc<Mutex<SqliteDatabase>>>,
     search_query: Option<String>,
 ) -> Result<Vec<SavedResearchTask>> {
-    println!("get_saved_research called with query: {:?}", search_query);
+    println!("get_saved_research called with query: {search_query:?}");
 
     let db = db.lock().await;
 
@@ -115,7 +115,7 @@ pub async fn get_saved_research(
 
     match &result {
         Ok(tasks) => println!("Found {} saved research tasks", tasks.len()),
-        Err(e) => eprintln!("Error getting saved research: {}", e),
+        Err(e) => eprintln!("Error getting saved research: {e}"),
     }
 
     result
