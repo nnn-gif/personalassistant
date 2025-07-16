@@ -121,14 +121,14 @@ fn activity_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Activity> {
             cpu_usage_percent: 0.0,
             memory_usage_mb: 0,
         },
-        project_context: row.get::<Option<String>, _>("project_name").map(|name| {
-            ProjectContext {
+        project_context: row
+            .get::<Option<String>, _>("project_name")
+            .map(|name| ProjectContext {
                 project_name: name,
                 project_path: String::new(),
                 project_type: ProjectType::Other("Unknown".to_string()),
                 git_branch: None,
-            }
-        }),
+            }),
         goal_id: row
             .get::<Option<String>, _>("goal_id")
             .and_then(|id| Uuid::parse_str(&id).ok()),

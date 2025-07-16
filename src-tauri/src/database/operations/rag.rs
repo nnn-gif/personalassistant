@@ -119,15 +119,12 @@ pub async fn load_document_chunks(
             .map_err(|e| AppError::Database(format!("Invalid chunk ID: {}", e)))?;
 
         let embedding_json: String = row.get("embedding");
-        let embedding: Vec<f32> = serde_json::from_str(&embedding_json).map_err(|e| {
-            AppError::Database(format!("Failed to deserialize embedding: {}", e))
-        })?;
+        let embedding: Vec<f32> = serde_json::from_str(&embedding_json)
+            .map_err(|e| AppError::Database(format!("Failed to deserialize embedding: {}", e)))?;
 
         let metadata_json: String = row.get("metadata");
-        let metadata: HashMap<String, String> =
-            serde_json::from_str(&metadata_json).map_err(|e| {
-                AppError::Database(format!("Failed to deserialize metadata: {}", e))
-            })?;
+        let metadata: HashMap<String, String> = serde_json::from_str(&metadata_json)
+            .map_err(|e| AppError::Database(format!("Failed to deserialize metadata: {}", e)))?;
 
         let chunk = DocumentChunk {
             id: chunk_id,

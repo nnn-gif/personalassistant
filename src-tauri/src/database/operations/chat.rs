@@ -93,9 +93,8 @@ pub async fn get_conversations(pool: &SqlitePool) -> Result<Vec<ChatConversation
         };
 
         conversations.push(ChatConversationSummary {
-            id: Uuid::parse_str(&row.get::<String, _>("id")).map_err(|e| {
-                AppError::Database(format!("Invalid UUID in conversation: {}", e))
-            })?,
+            id: Uuid::parse_str(&row.get::<String, _>("id"))
+                .map_err(|e| AppError::Database(format!("Invalid UUID in conversation: {}", e)))?,
             title: row.get("title"),
             mode,
             goal_id: Uuid::parse_str(&row.get::<String, _>("goal_id")).map_err(|e| {
@@ -186,9 +185,7 @@ pub async fn update_conversation_title(
         .bind(conversation_id.to_string())
         .execute(pool)
         .await
-        .map_err(|e| {
-            AppError::Database(format!("Failed to update conversation title: {}", e))
-        })?;
+        .map_err(|e| AppError::Database(format!("Failed to update conversation title: {}", e)))?;
 
     Ok(())
 }

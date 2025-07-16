@@ -8,7 +8,8 @@ pub async fn save_goal(pool: &SqlitePool, goal: &Goal) -> Result<()> {
     let allowed_apps_json = serde_json::to_string(&goal.allowed_apps)
         .map_err(|e| AppError::Database(format!("Failed to serialize allowed_apps: {}", e)))?;
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         INSERT INTO goals (id, name, duration_minutes, allowed_apps, progress_percentage, 
                          time_spent_minutes, time_spent_seconds, is_active, created_at, updated_at)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -21,7 +22,8 @@ pub async fn save_goal(pool: &SqlitePool, goal: &Goal) -> Result<()> {
             time_spent_seconds = excluded.time_spent_seconds,
             is_active = excluded.is_active,
             updated_at = excluded.updated_at
-    "#)
+    "#,
+    )
     .bind(goal.id.to_string())
     .bind(&goal.name)
     .bind(goal.target_duration_minutes as i32)
@@ -49,10 +51,8 @@ pub async fn get_all_goals(pool: &SqlitePool) -> Result<Vec<Goal>> {
 
     let mut goals = Vec::new();
     for row in rows {
-        let allowed_apps: Vec<String> =
-            serde_json::from_str(&row.get::<String, _>("allowed_apps")).map_err(|e| {
-                AppError::Database(format!("Failed to parse allowed_apps: {}", e))
-            })?;
+        let allowed_apps: Vec<String> = serde_json::from_str(&row.get::<String, _>("allowed_apps"))
+            .map_err(|e| AppError::Database(format!("Failed to parse allowed_apps: {}", e)))?;
 
         goals.push(Goal {
             id: Uuid::parse_str(&row.get::<String, _>("id"))
@@ -62,9 +62,8 @@ pub async fn get_all_goals(pool: &SqlitePool) -> Result<Vec<Goal>> {
                 as u32,
             allowed_apps,
             current_duration_minutes: row.get::<i32, _>("time_spent_minutes") as u32,
-            current_duration_seconds: row
-                .get::<Option<i32>, _>("time_spent_seconds")
-                .unwrap_or(0) as u32,
+            current_duration_seconds: row.get::<Option<i32>, _>("time_spent_seconds").unwrap_or(0)
+                as u32,
             is_active: row.get("is_active"),
             created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
                 .map_err(|e| AppError::Database(format!("Invalid created_at date: {}", e)))?

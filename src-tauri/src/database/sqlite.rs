@@ -1,5 +1,7 @@
 use crate::error::{AppError, Result};
-use crate::models::{Activity, ChatConversation, ChatConversationSummary, ChatMessage, Goal, SavedResearchTask};
+use crate::models::{
+    Activity, ChatConversation, ChatConversationSummary, ChatMessage, Goal, SavedResearchTask,
+};
 use crate::rag::{Document, DocumentChunk};
 use chrono::{DateTime, Utc};
 use dirs::data_dir;
