@@ -107,9 +107,7 @@ impl AudioTranscriber {
                 });
             }
             Err(e) => {
-                println!(
-                    "Available transcription methods failed: {e}, falling back to Ollama"
-                );
+                println!("Available transcription methods failed: {e}, falling back to Ollama");
             }
         }
 
@@ -272,9 +270,7 @@ impl AudioTranscriber {
                 .arg("--data-format=wav")
                 .arg("Testing speech recognition")
                 .output()
-                .map_err(|e| {
-                    AppError::Audio(format!("Failed to test speech recognition: {e}"))
-                })?;
+                .map_err(|e| AppError::Audio(format!("Failed to test speech recognition: {e}")))?;
 
             if output.status.success() {
                 // For demo purposes, return a sample transcription
@@ -616,9 +612,7 @@ impl AudioTranscriber {
                     participants: vec![],
                 })
             }
-            Err(e) => Err(AppError::Audio(format!(
-                "Failed to generate summary: {e}"
-            ))),
+            Err(e) => Err(AppError::Audio(format!("Failed to generate summary: {e}"))),
         }
     }
 }
