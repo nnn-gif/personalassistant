@@ -18,6 +18,7 @@ interface ChatMessage {
   researchTaskId?: string
 }
 
+
 interface DocumentSource {
   document_id: string
   content: string
@@ -78,19 +79,22 @@ export default function UnifiedChat() {
   const [researchProgress, setResearchProgress] = useState<ResearchProgress | null>(null)
   const [currentResearchTaskId, setCurrentResearchTaskId] = useState<string | null>(null)
   const [researchUnlisten, setResearchUnlisten] = useState<(() => void) | null>(null)
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadGoals()
     loadAvailableModels()
-    setMessages([{
+    // Set initial welcome message for default mode
+    const welcomeMessage: ChatMessage = {
       id: '1',
-      content: "Hello! I'm your AI assistant. Choose a mode above to get started, or just start chatting!",
+      content: `Welcome to ${modeConfig[currentMode].title}! ${modeConfig[currentMode].description}`,
       isUser: false,
       timestamp: new Date(),
-      mode: 'general',
+      mode: currentMode,
       contextUsed: false
-    }])
+    }
+    setMessages([welcomeMessage])
   }, [])
 
   useEffect(() => {
@@ -148,6 +152,44 @@ export default function UnifiedChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const createNewConversation = async (mode: ChatMode, firstMessage: string) => {
+    try {
+      const title = firstMessage.length > 50 
+        ? firstMessage.substring(0, 50) + '...'
+        : firstMessage
+      
+      const conversationId = await invoke<string>('create_chat_conversation', {
+        title,
+        mode: mode.toLowerCase()
+      })
+      
+      setCurrentConversationId(conversationId)
+      console.log('Created new conversation:', conversationId)
+      return conversationId
+    } catch (error) {
+      console.error('Failed to create conversation:', error)
+      return null
+    }
+  }
+
+  const saveMessage = async (message: ChatMessage, conversationId: string) => {
+    try {
+      await invoke('save_chat_message', {
+        conversationId,
+        content: message.content,
+        isUser: message.isUser,
+        mode: message.mode.toLowerCase(),
+        sources: message.sources ? JSON.stringify(message.sources) : null,
+        contextUsed: message.contextUsed,
+        researchTaskId: message.researchTaskId,
+        metadata: null
+      })
+      console.log('Saved message:', message.id)
+    } catch (error) {
+      console.error('Failed to save message:', error)
+    }
+  }
+
   const sendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return
 
@@ -163,6 +205,19 @@ export default function UnifiedChat() {
     const query = inputMessage
     setInputMessage('')
     setIsLoading(true)
+
+    // Create conversation if this is the first message
+    let conversationId = currentConversationId
+    if (!conversationId) {
+      conversationId = await createNewConversation(currentMode, query)
+      if (!conversationId) {
+        setIsLoading(false)
+        return
+      }
+    }
+
+    // Save user message
+    await saveMessage(userMessage, conversationId)
 
     try {
       let assistantMessage: ChatMessage
@@ -229,6 +284,11 @@ export default function UnifiedChat() {
       }
 
       setMessages(prev => [...prev, assistantMessage])
+      
+      // Save assistant message
+      if (conversationId) {
+        await saveMessage(assistantMessage, conversationId)
+      }
     } catch (error) {
       console.error('Chat failed:', error)
       const errorMessage: ChatMessage = {
@@ -240,6 +300,11 @@ export default function UnifiedChat() {
         contextUsed: false
       }
       setMessages(prev => [...prev, errorMessage])
+      
+      // Save error message
+      if (conversationId) {
+        await saveMessage(errorMessage, conversationId)
+      }
     } finally {
       setIsLoading(false)
       setResearchProgress(null)
@@ -264,17 +329,21 @@ export default function UnifiedChat() {
       }
     }
     
+    // Start a new conversation when switching modes
+    setCurrentConversationId(null)
+    setMessages([])
+    
     setCurrentMode(mode)
-    // Add a system message about mode change
-    const modeMessage: ChatMessage = {
+    // Add a welcome message for the new mode
+    const welcomeMessage: ChatMessage = {
       id: Date.now().toString(),
-      content: `Switched to ${modeConfig[mode].title}. ${modeConfig[mode].description}`,
+      content: `Welcome to ${modeConfig[mode].title}! ${modeConfig[mode].description}`,
       isUser: false,
       timestamp: new Date(),
       mode,
       contextUsed: false
     }
-    setMessages(prev => [...prev, modeMessage])
+    setMessages([welcomeMessage])
   }
 
   const getCurrentIcon = () => {

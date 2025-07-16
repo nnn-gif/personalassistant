@@ -209,6 +209,13 @@ fn main() {
             services::browser_ai::save_research,
             services::browser_ai::get_saved_research,
             services::browser_ai::delete_saved_research,
+            // Chat commands
+            services::chat::create_chat_conversation,
+            services::chat::save_chat_message,
+            services::chat::get_chat_conversations,
+            services::chat::get_chat_messages,
+            services::chat::delete_chat_conversation,
+            services::chat::update_chat_conversation_title,
             // Goal commands
             services::goals::create_goal,
             services::goals::activate_goal,

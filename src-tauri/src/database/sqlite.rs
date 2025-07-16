@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use crate::models::{Activity, Goal, ResearchTask, SavedResearchTask};
+use crate::models::{Activity, Goal, ResearchTask, SavedResearchTask, ChatConversation, ChatMessage, ChatMode, ChatConversationSummary};
 use chrono::{DateTime, Utc};
 use dirs::data_dir;
 use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
@@ -201,6 +201,72 @@ impl SqliteDatabase {
         .map_err(|e| {
             AppError::Database(format!("Failed to create chunks document_id index: {}", e))
         })?;
+
+        // Chat conversations table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS chat_conversations (
+                id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                message_count INTEGER NOT NULL DEFAULT 0,
+                last_message_at TEXT
+            )
+        "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::Database(format!("Failed to create chat_conversations table: {}", e))
+        })?;
+
+        // Chat messages table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY NOT NULL,
+                conversation_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                is_user BOOLEAN NOT NULL,
+                mode TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                sources TEXT,
+                context_used BOOLEAN,
+                research_task_id TEXT,
+                metadata TEXT,
+                FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
+            )
+        "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::Database(format!("Failed to create chat_messages table: {}", e))
+        })?;
+
+        // Create indices for chat tables
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_id ON chat_messages(conversation_id)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::Database(format!("Failed to create chat_messages conversation_id index: {}", e))
+            })?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::Database(format!("Failed to create chat_messages created_at index: {}", e))
+            })?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chat_conversations_mode ON chat_conversations(mode)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::Database(format!("Failed to create chat_conversations mode index: {}", e))
+            })?;
 
         Ok(())
     }
@@ -660,6 +726,186 @@ impl SqliteDatabase {
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to delete document: {}", e)))?;
+
+        Ok(())
+    }
+
+    // Chat operations
+    pub async fn create_conversation(&self, conversation: &ChatConversation) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO chat_conversations (
+                id, title, mode, created_at, updated_at, message_count, last_message_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(conversation.id.to_string())
+        .bind(&conversation.title)
+        .bind(conversation.mode.to_string())
+        .bind(conversation.created_at.to_rfc3339())
+        .bind(conversation.updated_at.to_rfc3339())
+        .bind(conversation.message_count as i64)
+        .bind(conversation.last_message_at.map(|dt| dt.to_rfc3339()))
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to create conversation: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn save_message(&self, message: &ChatMessage) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO chat_messages (
+                id, conversation_id, content, is_user, mode, created_at, 
+                sources, context_used, research_task_id, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(message.id.to_string())
+        .bind(message.conversation_id.to_string())
+        .bind(&message.content)
+        .bind(message.is_user)
+        .bind(message.mode.to_string())
+        .bind(message.created_at.to_rfc3339())
+        .bind(&message.sources)
+        .bind(message.context_used)
+        .bind(&message.research_task_id)
+        .bind(&message.metadata)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to save message: {}", e)))?;
+
+        // Update conversation message count and last message time
+        sqlx::query(
+            r#"
+            UPDATE chat_conversations 
+            SET message_count = message_count + 1, 
+                last_message_at = ?, 
+                updated_at = ? 
+            WHERE id = ?
+            "#,
+        )
+        .bind(message.created_at.to_rfc3339())
+        .bind(message.created_at.to_rfc3339())
+        .bind(message.conversation_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to update conversation: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn get_conversations(&self) -> Result<Vec<ChatConversationSummary>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, title, mode, message_count, last_message_at, created_at
+            FROM chat_conversations 
+            ORDER BY COALESCE(last_message_at, created_at) DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to get conversations: {}", e)))?;
+
+        let mut conversations = Vec::new();
+        for row in rows {
+            let mode_str: String = row.get("mode");
+            let mode = match mode_str.as_str() {
+                "general" => ChatMode::General,
+                "knowledge" => ChatMode::Knowledge,
+                "research" => ChatMode::Research,
+                _ => ChatMode::General,
+            };
+
+            conversations.push(ChatConversationSummary {
+                id: Uuid::parse_str(&row.get::<String, _>("id")).map_err(|e| {
+                    AppError::Database(format!("Invalid UUID in conversation: {}", e))
+                })?,
+                title: row.get("title"),
+                mode,
+                message_count: row.get::<i64, _>("message_count") as u32,
+                last_message_at: row
+                    .get::<Option<String>, _>("last_message_at")
+                    .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&Utc)),
+                created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                    .map_err(|e| AppError::Database(format!("Invalid created_at: {}", e)))?
+                    .with_timezone(&Utc),
+            });
+        }
+
+        Ok(conversations)
+    }
+
+    pub async fn get_conversation_messages(&self, conversation_id: Uuid) -> Result<Vec<ChatMessage>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, conversation_id, content, is_user, mode, created_at,
+                   sources, context_used, research_task_id, metadata
+            FROM chat_messages 
+            WHERE conversation_id = ?
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(conversation_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to get messages: {}", e)))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            let mode_str: String = row.get("mode");
+            let mode = match mode_str.as_str() {
+                "general" => ChatMode::General,
+                "knowledge" => ChatMode::Knowledge,
+                "research" => ChatMode::Research,
+                _ => ChatMode::General,
+            };
+
+            messages.push(ChatMessage {
+                id: Uuid::parse_str(&row.get::<String, _>("id")).map_err(|e| {
+                    AppError::Database(format!("Invalid UUID in message: {}", e))
+                })?,
+                conversation_id: Uuid::parse_str(&row.get::<String, _>("conversation_id"))
+                    .map_err(|e| AppError::Database(format!("Invalid conversation UUID: {}", e)))?,
+                content: row.get("content"),
+                is_user: row.get("is_user"),
+                mode,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                    .map_err(|e| AppError::Database(format!("Invalid created_at: {}", e)))?
+                    .with_timezone(&Utc),
+                sources: row.get("sources"),
+                context_used: row.get("context_used"),
+                research_task_id: row.get("research_task_id"),
+                metadata: row.get("metadata"),
+            });
+        }
+
+        Ok(messages)
+    }
+
+    pub async fn delete_conversation(&self, conversation_id: Uuid) -> Result<()> {
+        // Messages will be deleted by CASCADE
+        sqlx::query("DELETE FROM chat_conversations WHERE id = ?")
+            .bind(conversation_id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Database(format!("Failed to delete conversation: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn update_conversation_title(&self, conversation_id: Uuid, title: String) -> Result<()> {
+        sqlx::query(
+            "UPDATE chat_conversations SET title = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(title)
+        .bind(Utc::now().to_rfc3339())
+        .bind(conversation_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to update conversation title: {}", e)))?;
 
         Ok(())
     }
