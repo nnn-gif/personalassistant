@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Bot, User, FileText, Loader2, MessageSquare, Search, BookOpen } from 'lucide-react'
+import ResearchResults from './research/ResearchResults'
 
 type ChatMode = 'general' | 'knowledge' | 'research'
 
@@ -75,6 +76,8 @@ export default function UnifiedChat() {
   const [selectedModel, setSelectedModel] = useState<string>('llama3.2:1b')
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [researchProgress, setResearchProgress] = useState<ResearchProgress | null>(null)
+  const [currentResearchTaskId, setCurrentResearchTaskId] = useState<string | null>(null)
+  const [researchUnlisten, setResearchUnlisten] = useState<(() => void) | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -95,18 +98,22 @@ export default function UnifiedChat() {
   }, [messages])
 
   useEffect(() => {
-    let unlisten: (() => void) | null = null
-
-    if (currentMode === 'research') {
+    if (currentMode === 'research' && !researchUnlisten) {
       listen<ResearchProgress>('browser-ai-progress', (event) => {
+        console.log('Research progress:', event.payload)
         setResearchProgress(event.payload)
+        
+        // Check if research is completed
+        if (event.payload.status === 'Completed') {
+          setIsLoading(false)
+        }
       }).then(fn => {
-        unlisten = fn
+        setResearchUnlisten(() => fn)
       })
     }
 
     return () => {
-      if (unlisten) unlisten()
+      // Cleanup will be handled by mode change
     }
   }, [currentMode])
 
@@ -182,6 +189,17 @@ export default function UnifiedChat() {
 
         case 'research':
           const taskId = await invoke<string>('start_research', { query })
+          setCurrentResearchTaskId(taskId)
+          
+          // Set up timeout to stop loading after 2 minutes if not completed
+          setTimeout(() => {
+            setIsLoading(false)
+            if (researchUnlisten) {
+              researchUnlisten()
+              setResearchUnlisten(null)
+            }
+          }, 120000) // 2 minute timeout
+          
           assistantMessage = {
             id: (Date.now() + 1).toString(),
             content: `Starting research on: "${query}". I'll gather information from multiple sources and provide you with a comprehensive analysis.`,
@@ -236,6 +254,16 @@ export default function UnifiedChat() {
   }
 
   const handleModeChange = (mode: ChatMode) => {
+    // Clean up research state when switching away from research mode
+    if (currentMode === 'research' && mode !== 'research') {
+      setCurrentResearchTaskId(null)
+      setResearchProgress(null)
+      if (researchUnlisten) {
+        researchUnlisten()
+        setResearchUnlisten(null)
+      }
+    }
+    
     setCurrentMode(mode)
     // Add a system message about mode change
     const modeMessage: ChatMessage = {
@@ -438,6 +466,13 @@ export default function UnifiedChat() {
         
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Research Results */}
+      {currentMode === 'research' && currentResearchTaskId && !isLoading && (
+        <div className="p-4 border-t border-dark-border">
+          <ResearchResults taskId={currentResearchTaskId} />
+        </div>
+      )}
 
       {/* Input */}
       <div className="p-4 border-t border-dark-border">
