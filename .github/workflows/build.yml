@@ -97,9 +97,7 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          artifacts/macos-x64/**/*
-          artifacts/macos-arm64/**/*
+        files: artifacts/**/*.dmg
         body: |
           ## Personal Assistant v${{ github.ref_name }}
           
