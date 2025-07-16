@@ -102,7 +102,7 @@ export default function UnifiedChat() {
 
   const loadAvailableModels = async () => {
     try {
-      const models = await invoke<string[]>('list_ollama_models')
+      const models = await invoke<string[]>('get_available_models')
       setAvailableModels(models)
       // Set default model if available
       if (models.length > 0 && !models.includes(selectedModel)) {
@@ -243,8 +243,8 @@ export default function UnifiedChat() {
 
       switch (currentMode) {
         case 'knowledge':
-          response = await invoke<ChatResponse>('chat_with_knowledge', {
-            message: inputMessage,
+          response = await invoke<ChatResponse>('chat_with_documents', {
+            query: inputMessage,
             goalId: selectedGoal || null,
             model: selectedModel
           })
@@ -252,13 +252,12 @@ export default function UnifiedChat() {
 
         case 'research':
           try {
-            const taskId = await invoke<string>('perform_research', {
-              query: inputMessage,
-              goalId: selectedGoal || null,
-              model: selectedModel
+            const taskIdUuid = await invoke<string>('start_research', {
+              query: inputMessage
             })
-            setCurrentResearchTaskId(taskId)
-            researchTaskId = taskId
+            // The backend returns a UUID as a string
+            setCurrentResearchTaskId(taskIdUuid)
+            researchTaskId = taskIdUuid
             
             // Research mode returns immediately, we'll get updates via events
             response = {
@@ -277,11 +276,15 @@ export default function UnifiedChat() {
           break
 
         default:
-          response = await invoke<ChatResponse>('chat_general', {
+          const generalMessage = await invoke<string>('general_chat', {
             message: inputMessage,
-            goalId: selectedGoal || null,
             model: selectedModel
           })
+          response = {
+            message: generalMessage,
+            sources: [],
+            context_used: false
+          }
       }
 
       const assistantMessage: ChatMessage = {
