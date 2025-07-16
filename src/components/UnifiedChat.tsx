@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Bot, User, FileText, Loader2, MessageSquare, Search, BookOpen } from 'lucide-react'
+import { Send, Bot, User, FileText, Loader2, MessageSquare, Search, BookOpen, History, Trash2, Plus } from 'lucide-react'
 import ResearchResults from './research/ResearchResults'
 
 type ChatMode = 'general' | 'knowledge' | 'research'
@@ -46,6 +46,15 @@ interface ResearchProgress {
   current_operation?: string
 }
 
+interface ChatConversationSummary {
+  id: string
+  title: string
+  mode: ChatMode
+  message_count: number
+  last_message_at?: string
+  created_at: string
+}
+
 const modeConfig = {
   general: {
     icon: MessageSquare,
@@ -80,11 +89,14 @@ export default function UnifiedChat() {
   const [currentResearchTaskId, setCurrentResearchTaskId] = useState<string | null>(null)
   const [researchUnlisten, setResearchUnlisten] = useState<(() => void) | null>(null)
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<ChatConversationSummary[]>([])
+  const [showHistory, setShowHistory] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadGoals()
     loadAvailableModels()
+    loadConversations()
     // Set initial welcome message for default mode
     const welcomeMessage: ChatMessage = {
       id: '1',
@@ -148,6 +160,82 @@ export default function UnifiedChat() {
     }
   }
 
+  const loadConversations = async () => {
+    try {
+      const chatConversations = await invoke<ChatConversationSummary[]>('get_chat_conversations')
+      setConversations(chatConversations)
+      console.log('Loaded conversations:', chatConversations.length)
+    } catch (error) {
+      console.error('Failed to load conversations:', error)
+    }
+  }
+
+  const loadConversation = async (conversationId: string) => {
+    try {
+      const chatMessages = await invoke<any[]>('get_chat_messages', { conversationId })
+      
+      // Convert stored messages to ChatMessage format
+      const convertedMessages: ChatMessage[] = chatMessages.map(msg => ({
+        id: msg.id,
+        content: msg.content,
+        isUser: msg.is_user,
+        timestamp: new Date(msg.created_at),
+        mode: msg.mode as ChatMode,
+        sources: msg.sources ? JSON.parse(msg.sources) : undefined,
+        contextUsed: msg.context_used,
+        researchTaskId: msg.research_task_id
+      }))
+
+      setMessages(convertedMessages)
+      setCurrentConversationId(conversationId)
+      
+      // Set mode to match the conversation
+      if (convertedMessages.length > 0) {
+        setCurrentMode(convertedMessages[0].mode)
+      }
+      
+      console.log('Loaded conversation:', conversationId, 'with', convertedMessages.length, 'messages')
+    } catch (error) {
+      console.error('Failed to load conversation messages:', error)
+    }
+  }
+
+  const deleteConversation = async (conversationId: string) => {
+    try {
+      await invoke('delete_chat_conversation', { conversationId })
+      await loadConversations() // Refresh the list
+      
+      // If we're currently viewing the deleted conversation, start fresh
+      if (currentConversationId === conversationId) {
+        setCurrentConversationId(null)
+        setMessages([{
+          id: Date.now().toString(),
+          content: `Welcome to ${modeConfig[currentMode].title}! ${modeConfig[currentMode].description}`,
+          isUser: false,
+          timestamp: new Date(),
+          mode: currentMode,
+          contextUsed: false
+        }])
+      }
+      
+      console.log('Deleted conversation:', conversationId)
+    } catch (error) {
+      console.error('Failed to delete conversation:', error)
+    }
+  }
+
+  const startNewConversation = () => {
+    setCurrentConversationId(null)
+    setMessages([{
+      id: Date.now().toString(),
+      content: `Welcome to ${modeConfig[currentMode].title}! ${modeConfig[currentMode].description}`,
+      isUser: false,
+      timestamp: new Date(),
+      mode: currentMode,
+      contextUsed: false
+    }])
+  }
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -164,6 +252,7 @@ export default function UnifiedChat() {
       })
       
       setCurrentConversationId(conversationId)
+      await loadConversations() // Refresh conversations list
       console.log('Created new conversation:', conversationId)
       return conversationId
     } catch (error) {
@@ -352,11 +441,102 @@ export default function UnifiedChat() {
   }
 
   return (
-    <div className="flex flex-col h-full max-h-[80vh] bg-dark-card rounded-lg border border-dark-border">
+    <div className="flex h-full max-h-[80vh] bg-dark-card rounded-lg border border-dark-border">
+      {/* Chat History Sidebar */}
+      {showHistory && (
+        <div className="w-80 border-r border-dark-border bg-dark-surface">
+          <div className="p-4 border-b border-dark-border">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center">
+                <History className="w-5 h-5 mr-2" />
+                Chat History
+              </h3>
+              <button
+                onClick={() => setShowHistory(false)}
+                className="text-gray-400 hover:text-white p-1"
+              >
+                ×
+              </button>
+            </div>
+            <button
+              onClick={startNewConversation}
+              className="w-full flex items-center space-x-2 px-3 py-2 bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Chat</span>
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+            {conversations.map((conversation) => {
+              const ModeIcon = modeConfig[conversation.mode].icon
+              const isActive = currentConversationId === conversation.id
+              
+              return (
+                <div
+                  key={conversation.id}
+                  className={`group relative p-3 rounded-lg cursor-pointer transition-colors ${
+                    isActive
+                      ? 'bg-primary/20 border border-primary/30'
+                      : 'bg-dark-bg hover:bg-dark-border'
+                  }`}
+                  onClick={() => loadConversation(conversation.id)}
+                >
+                  <div className="flex items-start space-x-2">
+                    <ModeIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">
+                        {conversation.title}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {conversation.message_count} messages
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {conversation.last_message_at 
+                          ? new Date(conversation.last_message_at).toLocaleDateString()
+                          : new Date(conversation.created_at).toLocaleDateString()
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteConversation(conversation.id)
+                    }}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-all"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )
+            })}
+            
+            {conversations.length === 0 && (
+              <div className="text-center text-gray-400 py-8">
+                <History className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No chat history yet</p>
+                <p className="text-xs">Start a conversation to see it here</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Chat Area */}
+      <div className="flex flex-col flex-1">
       {/* Header with Mode Selector */}
       <div className="p-4 border-b border-dark-border">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className="p-2 text-gray-400 hover:text-white hover:bg-dark-border rounded-lg transition-colors"
+              title="Chat History"
+            >
+              <History className="w-5 h-5" />
+            </button>
             {getCurrentIcon()}
             <h2 className="text-xl font-bold text-white">Assistant Chat</h2>
           </div>
@@ -576,6 +756,7 @@ export default function UnifiedChat() {
             Model: {selectedModel}
           </span>
         </div>
+      </div>
       </div>
     </div>
   )
