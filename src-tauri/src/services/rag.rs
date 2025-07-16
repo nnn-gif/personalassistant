@@ -34,9 +34,7 @@ pub async fn index_document(
         .index_document(&file_path, goal_uuid)
         .await
         .map_err(|e| {
-            eprintln!(
-                "Failed to index document synchronously {file_path}: {e}"
-            );
+            eprintln!("Failed to index document synchronously {file_path}: {e}");
             e.to_string()
         })?;
 

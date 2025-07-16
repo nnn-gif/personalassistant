@@ -91,9 +91,7 @@ impl QdrantVectorStore {
                     strict_mode_config: None,
                 })
                 .await
-                .map_err(|e| {
-                    AppError::VectorStore(format!("Failed to create collection: {e}"))
-                })?;
+                .map_err(|e| AppError::VectorStore(format!("Failed to create collection: {e}")))?;
 
             println!("Created Qdrant collection: {COLLECTION_NAME}");
         } else {

@@ -74,7 +74,11 @@ pub async fn chat_with_documents(
 
     // Log search results for debugging
     for (i, result) in search_results.iter().enumerate() {
-        println!("Search Result {num}: (score: {score:.3})", num = i + 1, score = result.score);
+        println!(
+            "Search Result {num}: (score: {score:.3})",
+            num = i + 1,
+            score = result.score
+        );
         println!("Document ID: {}", result.document_id);
         println!(
             "Content: {}",
@@ -150,7 +154,10 @@ pub async fn chat_with_documents(
         )
     };
 
-    println!("Sending prompt to LLM (length: {len} chars)", len = prompt.len());
+    println!(
+        "Sending prompt to LLM (length: {len} chars)",
+        len = prompt.len()
+    );
     let response_text = if let Some(model) = model {
         llm.send_request_with_model(&prompt, &model).await
     } else {
