@@ -78,6 +78,10 @@ fn main() {
             services::llm::chat_with_documents,
             services::llm::get_available_models,
             services::llm::general_chat,
+            services::llm::chat_general,
+            services::llm::chat_with_knowledge,
+            services::llm::list_ollama_models,
+            services::llm::perform_research,
             // Embedding commands
             services::embeddings::test_embeddings,
             // Productivity commands

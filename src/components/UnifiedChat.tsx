@@ -1,29 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Bot, User, FileText, Loader2, MessageSquare, Search, BookOpen, History, Trash2, Plus } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
+import { History } from 'lucide-react'
 import ResearchResults from './research/ResearchResults'
-
-type ChatMode = 'general' | 'knowledge' | 'research'
-
-interface ChatMessage {
-  id: string
-  content: string
-  isUser: boolean
-  timestamp: Date
-  mode: ChatMode
-  sources?: DocumentSource[]
-  contextUsed?: boolean
-  researchTaskId?: string
-}
-
-
-interface DocumentSource {
-  document_id: string
-  content: string
-  score: number
-}
+import ChatHistory, { ChatConversationSummary } from './chat/ChatHistory'
+import MessageList, { ChatMessage, DocumentSource } from './chat/MessageList'
+import ModeSelector, { ChatMode, modeConfig } from './chat/ModeSelector'
+import ChatInput from './chat/ChatInput'
+import ResearchProgressComponent, { ResearchProgress } from './chat/ResearchProgress'
 
 interface ChatResponse {
   message: string
@@ -34,46 +19,6 @@ interface ChatResponse {
 interface Goal {
   id: string
   name: string
-}
-
-interface ResearchProgress {
-  task_id: string
-  status: string
-  current_subtask?: string
-  completed_subtasks: number
-  total_subtasks: number
-  percentage: number
-  current_operation?: string
-}
-
-interface ChatConversationSummary {
-  id: string
-  title: string
-  mode: ChatMode
-  message_count: number
-  last_message_at?: string
-  created_at: string
-}
-
-const modeConfig = {
-  general: {
-    icon: MessageSquare,
-    title: 'General Assistant',
-    placeholder: 'Ask me anything...',
-    description: 'Open-ended conversation and general assistance'
-  },
-  knowledge: {
-    icon: BookOpen,
-    title: 'Knowledge Assistant',
-    placeholder: 'Ask about your documents...',
-    description: 'Search and chat with your indexed documents'
-  },
-  research: {
-    icon: Search,
-    title: 'Research Assistant',
-    placeholder: 'What would you like to research?',
-    description: 'AI-powered web research and analysis'
-  }
 }
 
 export default function UnifiedChat() {
@@ -98,15 +43,13 @@ export default function UnifiedChat() {
     loadAvailableModels()
     loadConversations()
     // Set initial welcome message for default mode
-    const welcomeMessage: ChatMessage = {
-      id: '1',
+    setMessages([{
+      id: Date.now().toString(),
       content: `Welcome to ${modeConfig[currentMode].title}! ${modeConfig[currentMode].description}`,
       isUser: false,
       timestamp: new Date(),
-      mode: currentMode,
-      contextUsed: false
-    }
-    setMessages([welcomeMessage])
+      mode: currentMode
+    }])
   }, [])
 
   useEffect(() => {
@@ -114,18 +57,33 @@ export default function UnifiedChat() {
   }, [messages])
 
   useEffect(() => {
-    if (currentMode === 'research' && !researchUnlisten) {
-      listen<ResearchProgress>('browser-ai-progress', (event) => {
-        console.log('Research progress:', event.payload)
-        setResearchProgress(event.payload)
-        
-        // Check if research is completed
-        if (event.payload.status === 'Completed') {
-          setIsLoading(false)
-        }
-      }).then(fn => {
-        setResearchUnlisten(() => fn)
-      })
+    // Cleanup previous research listener if exists
+    if (researchUnlisten) {
+      researchUnlisten()
+      setResearchUnlisten(null)
+    }
+
+    // Setup research progress listener only for research mode
+    if (currentMode === 'research') {
+      const setupListener = async () => {
+        const unlisten = await listen<ResearchProgress>('research-progress', (event) => {
+          console.log('Research progress:', event.payload)
+          setResearchProgress(event.payload)
+          
+          if (event.payload.status === 'completed' || event.payload.status === 'failed') {
+            setTimeout(() => {
+              setResearchProgress(null)
+              setCurrentResearchTaskId(null)
+            }, 3000)
+          }
+        })
+        setResearchUnlisten(() => unlisten)
+      }
+      setupListener()
+    } else {
+      // Clear research state when switching away from research mode
+      setResearchProgress(null)
+      setCurrentResearchTaskId(null)
     }
 
     return () => {
@@ -144,27 +102,23 @@ export default function UnifiedChat() {
 
   const loadAvailableModels = async () => {
     try {
-      const models = await invoke<string[]>('get_available_models')
+      const models = await invoke<string[]>('list_ollama_models')
       setAvailableModels(models)
+      // Set default model if available
       if (models.length > 0 && !models.includes(selectedModel)) {
         setSelectedModel(models[0])
       }
     } catch (error) {
-      console.error('Failed to load available models:', error)
-      setAvailableModels([
-        'llama3.2:1b', 'llama3.2:3b', 'llama3.1:8b', 'llama3.1:70b',
-        'qwen2.5:1.5b', 'qwen2.5:3b', 'qwen2.5:7b',
-        'gemma2:2b', 'gemma2:9b', 'phi3.5:3.8b',
-        'codellama:7b', 'codellama:13b', 'mistral:7b', 'mixtral:8x7b'
-      ])
+      console.error('Failed to load models:', error)
+      // Fallback to default model
+      setAvailableModels(['llama3.2:1b'])
     }
   }
 
   const loadConversations = async () => {
     try {
-      const chatConversations = await invoke<ChatConversationSummary[]>('get_chat_conversations')
-      setConversations(chatConversations)
-      console.log('Loaded conversations:', chatConversations.length)
+      const convs = await invoke<ChatConversationSummary[]>('get_chat_conversations')
+      setConversations(convs)
     } catch (error) {
       console.error('Failed to load conversations:', error)
     }
@@ -172,53 +126,40 @@ export default function UnifiedChat() {
 
   const loadConversation = async (conversationId: string) => {
     try {
-      const chatMessages = await invoke<any[]>('get_chat_messages', { conversationId })
-      
-      // Convert stored messages to ChatMessage format
-      const convertedMessages: ChatMessage[] = chatMessages.map(msg => ({
-        id: msg.id,
-        content: msg.content,
-        isUser: msg.is_user,
-        timestamp: new Date(msg.created_at),
-        mode: msg.mode as ChatMode,
-        sources: msg.sources ? JSON.parse(msg.sources) : undefined,
-        contextUsed: msg.context_used,
-        researchTaskId: msg.research_task_id
+      const messages = await invoke<ChatMessage[]>('get_chat_messages', { conversationId })
+      const formattedMessages = messages.map(msg => ({
+        ...msg,
+        timestamp: new Date(msg.timestamp)
       }))
-
-      setMessages(convertedMessages)
+      setMessages(formattedMessages)
       setCurrentConversationId(conversationId)
       
-      // Set mode to match the conversation
-      if (convertedMessages.length > 0) {
-        setCurrentMode(convertedMessages[0].mode)
+      // Set mode based on conversation
+      const conversation = conversations.find(c => c.id === conversationId)
+      if (conversation) {
+        setCurrentMode(conversation.mode)
       }
-      
-      console.log('Loaded conversation:', conversationId, 'with', convertedMessages.length, 'messages')
     } catch (error) {
-      console.error('Failed to load conversation messages:', error)
+      console.error('Failed to load conversation:', error)
     }
   }
 
   const deleteConversation = async (conversationId: string) => {
     try {
       await invoke('delete_chat_conversation', { conversationId })
-      await loadConversations() // Refresh the list
+      await loadConversations()
       
-      // If we're currently viewing the deleted conversation, start fresh
-      if (currentConversationId === conversationId) {
+      // If deleting current conversation, clear messages
+      if (conversationId === currentConversationId) {
         setCurrentConversationId(null)
         setMessages([{
           id: Date.now().toString(),
           content: `Welcome to ${modeConfig[currentMode].title}! ${modeConfig[currentMode].description}`,
           isUser: false,
           timestamp: new Date(),
-          mode: currentMode,
-          contextUsed: false
+          mode: currentMode
         }])
       }
-      
-      console.log('Deleted conversation:', conversationId)
     } catch (error) {
       console.error('Failed to delete conversation:', error)
     }
@@ -231,8 +172,7 @@ export default function UnifiedChat() {
       content: `Welcome to ${modeConfig[currentMode].title}! ${modeConfig[currentMode].description}`,
       isUser: false,
       timestamp: new Date(),
-      mode: currentMode,
-      contextUsed: false
+      mode: currentMode
     }])
   }
 
@@ -242,18 +182,12 @@ export default function UnifiedChat() {
 
   const createNewConversation = async (mode: ChatMode, firstMessage: string) => {
     try {
-      const title = firstMessage.length > 50 
-        ? firstMessage.substring(0, 50) + '...'
-        : firstMessage
-      
       const conversationId = await invoke<string>('create_chat_conversation', {
-        title,
-        mode: mode.toLowerCase()
+        title: firstMessage.slice(0, 50) + (firstMessage.length > 50 ? '...' : ''),
+        mode
       })
-      
       setCurrentConversationId(conversationId)
-      await loadConversations() // Refresh conversations list
-      console.log('Created new conversation:', conversationId)
+      await loadConversations()
       return conversationId
     } catch (error) {
       console.error('Failed to create conversation:', error)
@@ -267,13 +201,11 @@ export default function UnifiedChat() {
         conversationId,
         content: message.content,
         isUser: message.isUser,
-        mode: message.mode.toLowerCase(),
+        mode: message.mode,
         sources: message.sources ? JSON.stringify(message.sources) : null,
         contextUsed: message.contextUsed,
-        researchTaskId: message.researchTaskId,
-        metadata: null
+        researchTaskId: message.researchTaskId
       })
-      console.log('Saved message:', message.id)
     } catch (error) {
       console.error('Failed to save message:', error)
     }
@@ -291,85 +223,76 @@ export default function UnifiedChat() {
     }
 
     setMessages(prev => [...prev, userMessage])
-    const query = inputMessage
     setInputMessage('')
     setIsLoading(true)
 
-    // Create conversation if this is the first message
-    let conversationId = currentConversationId
-    if (!conversationId) {
-      conversationId = await createNewConversation(currentMode, query)
-      if (!conversationId) {
-        setIsLoading(false)
-        return
-      }
-    }
-
-    // Save user message
-    await saveMessage(userMessage, conversationId)
-
     try {
-      let assistantMessage: ChatMessage
+      // Create conversation if needed
+      let conversationId = currentConversationId
+      if (!conversationId) {
+        conversationId = await createNewConversation(currentMode, inputMessage)
+      }
+
+      // Save user message
+      if (conversationId) {
+        await saveMessage(userMessage, conversationId)
+      }
+
+      let response: ChatResponse
+      let researchTaskId: string | undefined
 
       switch (currentMode) {
         case 'knowledge':
-          const knowledgeResponse = await invoke<ChatResponse>('chat_with_documents', {
-            query,
+          response = await invoke<ChatResponse>('chat_with_knowledge', {
+            message: inputMessage,
             goalId: selectedGoal || null,
-            limit: 5,
-            model: selectedModel || null
+            model: selectedModel
           })
-
-          assistantMessage = {
-            id: (Date.now() + 1).toString(),
-            content: knowledgeResponse.message,
-            isUser: false,
-            timestamp: new Date(),
-            mode: currentMode,
-            sources: knowledgeResponse.sources,
-            contextUsed: knowledgeResponse.context_used
-          }
           break
 
         case 'research':
-          const taskId = await invoke<string>('start_research', { query })
-          setCurrentResearchTaskId(taskId)
-          
-          // Set up timeout to stop loading after 2 minutes if not completed
-          setTimeout(() => {
-            setIsLoading(false)
-            if (researchUnlisten) {
-              researchUnlisten()
-              setResearchUnlisten(null)
+          try {
+            const taskId = await invoke<string>('perform_research', {
+              query: inputMessage,
+              goalId: selectedGoal || null,
+              model: selectedModel
+            })
+            setCurrentResearchTaskId(taskId)
+            researchTaskId = taskId
+            
+            // Research mode returns immediately, we'll get updates via events
+            response = {
+              message: "Research task started. I'll analyze your query and gather information from the web...",
+              sources: [],
+              context_used: false
             }
-          }, 120000) // 2 minute timeout
-          
-          assistantMessage = {
-            id: (Date.now() + 1).toString(),
-            content: `Starting research on: "${query}". I'll gather information from multiple sources and provide you with a comprehensive analysis.`,
-            isUser: false,
-            timestamp: new Date(),
-            mode: currentMode,
-            researchTaskId: taskId
+          } catch (error) {
+            console.error('Research failed:', error)
+            response = {
+              message: `Failed to start research: ${error}`,
+              sources: [],
+              context_used: false
+            }
           }
           break
 
-        case 'general':
         default:
-          // For general chat, we'll use a simple LLM call without RAG
-          const generalResponse = await invoke<string>('general_chat', {
-            message: query,
-            model: selectedModel || null
+          response = await invoke<ChatResponse>('chat_general', {
+            message: inputMessage,
+            goalId: selectedGoal || null,
+            model: selectedModel
           })
+      }
 
-          assistantMessage = {
-            id: (Date.now() + 1).toString(),
-            content: generalResponse,
-            isUser: false,
-            timestamp: new Date(),
-            mode: currentMode
-          }
-          break
+      const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        content: response.message,
+        isUser: false,
+        timestamp: new Date(),
+        mode: currentMode,
+        sources: response.sources,
+        contextUsed: response.context_used,
+        researchTaskId
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -377,26 +300,20 @@ export default function UnifiedChat() {
       // Save assistant message
       if (conversationId) {
         await saveMessage(assistantMessage, conversationId)
+        await loadConversations() // Refresh to update last message time
       }
     } catch (error) {
-      console.error('Chat failed:', error)
+      console.error('Failed to send message:', error)
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        content: "I'm sorry, I encountered an error while processing your request. Please try again.",
+        content: `Error: ${error}`,
         isUser: false,
         timestamp: new Date(),
-        mode: currentMode,
-        contextUsed: false
+        mode: currentMode
       }
       setMessages(prev => [...prev, errorMessage])
-      
-      // Save error message
-      if (conversationId) {
-        await saveMessage(errorMessage, conversationId)
-      }
     } finally {
       setIsLoading(false)
-      setResearchProgress(null)
     }
   }
 
@@ -408,355 +325,97 @@ export default function UnifiedChat() {
   }
 
   const handleModeChange = (mode: ChatMode) => {
-    // Clean up research state when switching away from research mode
-    if (currentMode === 'research' && mode !== 'research') {
-      setCurrentResearchTaskId(null)
-      setResearchProgress(null)
-      if (researchUnlisten) {
-        researchUnlisten()
-        setResearchUnlisten(null)
-      }
-    }
-    
-    // Start a new conversation when switching modes
-    setCurrentConversationId(null)
-    setMessages([])
-    
     setCurrentMode(mode)
-    // Add a welcome message for the new mode
-    const welcomeMessage: ChatMessage = {
+    // Clear current conversation when switching modes
+    setCurrentConversationId(null)
+    setMessages([{
       id: Date.now().toString(),
-      content: `Welcome to ${modeConfig[mode].title}! ${modeConfig[mode].description}`,
+      content: `Switched to ${modeConfig[mode].title}. ${modeConfig[mode].description}`,
       isUser: false,
       timestamp: new Date(),
-      mode,
-      contextUsed: false
+      mode
+    }])
+    
+    // Clear research progress if switching away from research
+    if (mode !== 'research') {
+      setResearchProgress(null)
+      setCurrentResearchTaskId(null)
     }
-    setMessages([welcomeMessage])
   }
 
   const getCurrentIcon = () => {
     const IconComponent = modeConfig[currentMode].icon
-    return <IconComponent className="w-6 h-6 text-primary" />
+    return <IconComponent className="w-5 h-5" />
   }
 
   return (
     <div className="flex h-full max-h-[80vh] bg-dark-card rounded-lg border border-dark-border">
       {/* Chat History Sidebar */}
       {showHistory && (
-        <div className="w-80 border-r border-dark-border bg-dark-surface">
-          <div className="p-4 border-b border-dark-border">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white flex items-center">
-                <History className="w-5 h-5 mr-2" />
-                Chat History
-              </h3>
-              <button
-                onClick={() => setShowHistory(false)}
-                className="text-gray-400 hover:text-white p-1"
-              >
-                ×
-              </button>
-            </div>
-            <button
-              onClick={startNewConversation}
-              className="w-full flex items-center space-x-2 px-3 py-2 bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Chat</span>
-            </button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {conversations.map((conversation) => {
-              const ModeIcon = modeConfig[conversation.mode].icon
-              const isActive = currentConversationId === conversation.id
-              
-              return (
-                <div
-                  key={conversation.id}
-                  className={`group relative p-3 rounded-lg cursor-pointer transition-colors ${
-                    isActive
-                      ? 'bg-primary/20 border border-primary/30'
-                      : 'bg-dark-bg hover:bg-dark-border'
-                  }`}
-                  onClick={() => loadConversation(conversation.id)}
-                >
-                  <div className="flex items-start space-x-2">
-                    <ModeIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">
-                        {conversation.title}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {conversation.message_count} messages
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {conversation.last_message_at 
-                          ? new Date(conversation.last_message_at).toLocaleDateString()
-                          : new Date(conversation.created_at).toLocaleDateString()
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      deleteConversation(conversation.id)
-                    }}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-all"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              )
-            })}
-            
-            {conversations.length === 0 && (
-              <div className="text-center text-gray-400 py-8">
-                <History className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No chat history yet</p>
-                <p className="text-xs">Start a conversation to see it here</p>
-              </div>
-            )}
-          </div>
-        </div>
+        <ChatHistory
+          conversations={conversations}
+          currentConversationId={currentConversationId}
+          onLoadConversation={loadConversation}
+          onDeleteConversation={deleteConversation}
+          onNewConversation={startNewConversation}
+        />
       )}
 
       {/* Main Chat Area */}
-      <div className="flex flex-col flex-1">
-      {/* Header with Mode Selector */}
-      <div className="p-4 border-b border-dark-border">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-2">
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b border-dark-border flex items-center justify-between">
+          <div className="flex items-center space-x-3">
             <button
               onClick={() => setShowHistory(!showHistory)}
-              className="p-2 text-gray-400 hover:text-white hover:bg-dark-border rounded-lg transition-colors"
-              title="Chat History"
+              className="p-2 rounded-lg hover:bg-dark-border transition-colors"
+              title="Toggle chat history"
             >
-              <History className="w-5 h-5" />
+              <History className="w-5 h-5 text-gray-400" />
             </button>
-            {getCurrentIcon()}
-            <h2 className="text-xl font-bold text-white">Assistant Chat</h2>
+            <div className="flex items-center space-x-2">
+              {getCurrentIcon()}
+              <h2 className="text-lg font-semibold text-white">{modeConfig[currentMode].title}</h2>
+            </div>
           </div>
-          
-          <div className="flex items-center space-x-4">
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="px-3 py-1 bg-dark-bg border border-dark-border rounded text-white text-sm"
-            >
-              {availableModels.map(model => (
-                <option key={model} value={model}>{model}</option>
-              ))}
-            </select>
-            
-            {currentMode === 'knowledge' && (
-              <select
-                value={selectedGoal}
-                onChange={(e) => setSelectedGoal(e.target.value)}
-                className="px-3 py-1 bg-dark-bg border border-dark-border rounded text-white text-sm"
-              >
-                <option value="">All Documents</option>
-                {goals.map(goal => (
-                  <option key={goal.id} value={goal.id}>{goal.name}</option>
-                ))}
-              </select>
-            )}
-          </div>
+          <p className="text-sm text-gray-500">{modeConfig[currentMode].description}</p>
         </div>
 
         {/* Mode Selector */}
-        <div className="flex space-x-1 bg-dark-bg rounded-lg p-1">
-          {(Object.keys(modeConfig) as ChatMode[]).map((mode) => {
-            const config = modeConfig[mode]
-            const IconComponent = config.icon
-            const isActive = currentMode === mode
-            
-            return (
-              <button
-                key={mode}
-                onClick={() => handleModeChange(mode)}
-                className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                  isActive
-                    ? 'bg-primary text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-dark-border'
-                }`}
-              >
-                <IconComponent className="w-4 h-4" />
-                <span>{config.title}</span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
+        <ModeSelector currentMode={currentMode} onModeChange={handleModeChange} />
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <AnimatePresence>
-          {messages.map((message) => (
-            <motion.div
-              key={message.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className={`flex ${message.isUser ? 'justify-end' : 'justify-start'}`}
-            >
-              <div className={`max-w-[80%] ${message.isUser ? 'order-2' : 'order-1'}`}>
-                <div
-                  className={`p-3 rounded-lg ${
-                    message.isUser
-                      ? 'bg-primary text-white'
-                      : 'bg-dark-bg text-gray-100'
-                  }`}
-                >
-                  <div className="flex items-start space-x-2">
-                    {!message.isUser && (
-                      <Bot className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
-                    )}
-                    {message.isUser && (
-                      <User className="w-4 h-4 mt-0.5 text-white flex-shrink-0" />
-                    )}
-                    <div className="flex-1">
-                      <p className="whitespace-pre-wrap">{message.content}</p>
-                      
-                      {/* Mode indicator */}
-                      {!message.isUser && (
-                        <div className="mt-1 flex items-center text-xs text-gray-400">
-                          {React.createElement(modeConfig[message.mode].icon, { className: "w-3 h-3 mr-1" })}
-                          {modeConfig[message.mode].title}
-                        </div>
-                      )}
-                      
-                      {/* Context indicator */}
-                      {!message.isUser && message.contextUsed && (
-                        <div className="mt-2 flex items-center text-xs text-green-400">
-                          <FileText className="w-3 h-3 mr-1" />
-                          Answer based on your documents
-                        </div>
-                      )}
-                      
-                      {/* Sources */}
-                      {message.sources && message.sources.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          <div className="text-xs text-gray-400 font-medium">Sources:</div>
-                          {message.sources.slice(0, 3).map((source, index) => (
-                            <div
-                              key={index}
-                              className="text-xs bg-gray-800 p-2 rounded border-l-2 border-primary"
-                            >
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-gray-300">Document {index + 1}</span>
-                                <span className="text-green-400">
-                                  {Math.round(source.score * 100)}% relevance
-                                </span>
-                              </div>
-                              <p className="text-gray-400 line-clamp-2">
-                                {source.content.substring(0, 100)}...
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="text-xs text-gray-500 mt-1 px-2">
-                  {message.timestamp.toLocaleTimeString()}
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-        
         {/* Research Progress */}
         {researchProgress && currentMode === 'research' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-dark-bg p-4 rounded-lg border border-dark-border"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-300 font-medium">
-                {researchProgress.current_operation || 'Researching...'}
-              </span>
-              <span className="text-sm text-gray-400">
-                {Math.round(researchProgress.percentage)}%
-              </span>
-            </div>
-            <div className="w-full bg-gray-700 rounded-full h-2">
-              <motion.div
-                className="bg-primary h-2 rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${researchProgress.percentage}%` }}
-                transition={{ duration: 0.3 }}
-              />
-            </div>
-          </motion.div>
+          <ResearchProgressComponent progress={researchProgress} />
         )}
-        
-        {isLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex justify-start"
-          >
-            <div className="bg-dark-bg text-gray-100 p-3 rounded-lg max-w-[80%]">
-              <div className="flex items-center space-x-2">
-                <Bot className="w-4 h-4 text-primary" />
-                <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                <span>Thinking...</span>
-              </div>
+
+        {/* Messages */}
+        <MessageList messages={messages} messagesEndRef={messagesEndRef} />
+
+        {/* Research Results */}
+        <AnimatePresence>
+          {currentResearchTaskId && currentMode === 'research' && (
+            <div className="border-t border-dark-border">
+              <ResearchResults taskId={currentResearchTaskId} />
             </div>
-          </motion.div>
-        )}
-        
-        <div ref={messagesEndRef} />
-      </div>
+          )}
+        </AnimatePresence>
 
-      {/* Research Results */}
-      {currentMode === 'research' && currentResearchTaskId && !isLoading && (
-        <div className="p-4 border-t border-dark-border">
-          <ResearchResults taskId={currentResearchTaskId} />
-        </div>
-      )}
-
-      {/* Input */}
-      <div className="p-4 border-t border-dark-border">
-        <div className="flex space-x-2">
-          <textarea
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder={modeConfig[currentMode].placeholder}
-            className="flex-1 px-3 py-2 bg-dark-bg border border-dark-border rounded-lg text-white placeholder-gray-400 resize-none"
-            rows={1}
-            disabled={isLoading}
-          />
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={sendMessage}
-            disabled={!inputMessage.trim() || isLoading}
-            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-          >
-            <Send className="w-4 h-4" />
-          </motion.button>
-        </div>
-        
-        <div className="text-xs text-gray-500 mt-2 flex items-center justify-between">
-          <span>
-            {currentMode === 'knowledge' && selectedGoal 
-              ? `Searching in goal: ${goals.find(g => g.id === selectedGoal)?.name}` 
-              : modeConfig[currentMode].description}
-          </span>
-          <span>
-            Model: {selectedModel}
-          </span>
-        </div>
-      </div>
+        {/* Input Area */}
+        <ChatInput
+          inputMessage={inputMessage}
+          isLoading={isLoading}
+          currentMode={currentMode}
+          selectedGoal={selectedGoal}
+          selectedModel={selectedModel}
+          goals={goals}
+          availableModels={availableModels}
+          onInputChange={setInputMessage}
+          onSendMessage={sendMessage}
+          onKeyPress={handleKeyPress}
+          onGoalChange={setSelectedGoal}
+          onModelChange={setSelectedModel}
+        />
       </div>
     </div>
   )

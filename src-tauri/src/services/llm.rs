@@ -263,3 +263,55 @@ pub async fn general_chat(
         }
     }
 }
+
+// Command aliases for frontend compatibility
+#[tauri::command]
+pub async fn chat_general(
+    llm: State<'_, Arc<LlmClient>>,
+    message: String,
+    _goal_id: Option<String>, // Ignored for general chat
+    model: Option<String>,
+) -> std::result::Result<ChatResponse, String> {
+    let response = general_chat(llm, message, model).await?;
+    
+    Ok(ChatResponse {
+        message: response,
+        sources: vec![],
+        context_used: false,
+    })
+}
+
+#[tauri::command]
+pub async fn chat_with_knowledge(
+    llm: State<'_, Arc<LlmClient>>,
+    rag_system: State<'_, Arc<Mutex<crate::rag::RAGSystemWrapper>>>,
+    activity_tracker: State<'_, Arc<Mutex<crate::activity_tracking::ActivityTracker>>>,
+    message: String,
+    goal_id: Option<String>,
+    model: Option<String>,
+) -> std::result::Result<ChatResponse, String> {
+    // Use the existing chat_with_documents command
+    chat_with_documents(llm, rag_system, activity_tracker, message, goal_id, None, model).await
+}
+
+#[tauri::command]
+pub async fn list_ollama_models(
+    llm: State<'_, Arc<LlmClient>>,
+) -> std::result::Result<Vec<String>, String> {
+    get_available_models(llm).await
+}
+
+#[tauri::command] 
+pub async fn perform_research(
+    app: tauri::AppHandle,
+    agent: State<'_, Arc<Mutex<crate::browser_ai::BrowserAIAgent>>>,
+    query: String,
+    _goal_id: Option<String>, // Not used in start_research
+    _model: Option<String>, // Not used in start_research
+) -> std::result::Result<String, String> {
+    // Delegate to the browser AI service and convert Uuid to String
+    match crate::services::browser_ai::start_research(app, agent, query).await {
+        Ok(task_id) => Ok(task_id.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
