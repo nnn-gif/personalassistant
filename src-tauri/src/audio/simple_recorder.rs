@@ -38,6 +38,8 @@ struct ActiveRecording {
     channels: u16,
     ended_at: Arc<Mutex<Option<chrono::DateTime<Utc>>>>,
     goal_id: Option<String>,
+    #[cfg(target_os = "windows")]
+    stream: Arc<Mutex<Option<cpal::Stream>>>,
 }
 
 pub struct SimpleAudioRecorder {
@@ -116,18 +118,60 @@ impl SimpleAudioRecorder {
         let host = cpal::default_host();
         let mut device_names = vec![];
 
-        if let Some(device) = host.default_input_device() {
-            if let Ok(name) = device.name() {
-                device_names.push(format!("Default Input: {name}"));
+        // Try to get the default input device
+        match host.default_input_device() {
+            Some(device) => {
+                match device.name() {
+                    Ok(name) => {
+                        device_names.push(format!("Default Input: {name}"));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get default device name: {}", e);
+                        device_names.push("Default Input: Unknown".to_string());
+                    }
+                }
+            }
+            None => {
+                tracing::warn!("No default input device found");
             }
         }
 
-        if let Ok(devices) = host.input_devices() {
-            for device in devices {
-                if let Ok(name) = device.name() {
-                    device_names.push(name);
+        // List all input devices
+        match host.input_devices() {
+            Ok(devices) => {
+                for (index, device) in devices.enumerate() {
+                    match device.name() {
+                        Ok(name) => {
+                            // Skip if it's the default device (already added)
+                            if !device_names.iter().any(|n| n.contains(&name)) {
+                                device_names.push(name);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to get device {} name: {}", index, e);
+                            device_names.push(format!("Unknown Device {}", index));
+                        }
+                    }
                 }
             }
+            Err(e) => {
+                tracing::error!("Failed to enumerate input devices: {}", e);
+                // On Windows, this might happen if no audio devices are available
+                // Return empty list rather than failing
+                #[cfg(target_os = "windows")]
+                {
+                    return Ok(device_names);
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    return Err(AppError::Audio(format!("Failed to list devices: {}", e)));
+                }
+            }
+        }
+
+        // If no devices found at all, return an error
+        if device_names.is_empty() {
+            return Err(AppError::Audio("No audio input devices found. Please check your audio settings.".to_string()));
         }
 
         Ok(device_names)
@@ -143,6 +187,8 @@ impl SimpleAudioRecorder {
         goal_id: Option<String>,
     ) -> Result<RecordingInfo> {
         let host = cpal::default_host();
+        
+        tracing::info!("Starting recording with device: {:?}", device_name);
 
         // Get the device
         let device = if let Some(name) = device_name {
@@ -162,10 +208,23 @@ impl SimpleAudioRecorder {
                 .ok_or_else(|| AppError::Audio("No default input device found".to_string()))?
         };
 
-        // Get default config
-        let config = device
-            .default_input_config()
-            .map_err(|e| AppError::Audio(format!("Failed to get device config: {e}")))?;
+        // Get device config - try default first, then supported configs
+        let config = match device.default_input_config() {
+            Ok(config) => config,
+            Err(e) => {
+                tracing::warn!("Failed to get default config: {}, trying supported configs", e);
+                
+                // On Windows, default config might fail, so try supported configs
+                let mut configs = device
+                    .supported_input_configs()
+                    .map_err(|e| AppError::Audio(format!("Failed to get supported configs: {e}")))?;
+                
+                configs
+                    .next()
+                    .ok_or_else(|| AppError::Audio("No supported input configurations found".to_string()))?
+                    .with_max_sample_rate()
+            }
+        };
 
         let sample_rate = config.sample_rate().0;
         let channels = config.channels();
@@ -274,16 +333,29 @@ impl SimpleAudioRecorder {
             channels,
             ended_at,
             goal_id: goal_id.clone(),
+            #[cfg(target_os = "windows")]
+            stream: Arc::new(Mutex::new(None)),
         };
 
         // Store the active recording before forgetting the stream
         *self.current_recording.lock().unwrap() = Some(active_recording);
 
-        // IMPORTANT: We use std::mem::forget here to keep the stream alive
-        // The stream will continue recording until stop_recording is called
-        // When the recording is stopped, the writer will be finalized which
-        // ensures all data is properly written
-        std::mem::forget(stream);
+        // Platform-specific stream handling
+        #[cfg(target_os = "windows")]
+        {
+            // On Windows, we need to store the stream to keep it alive
+            // and properly stop it when recording ends
+            if let Some(ref mut recording) = *self.current_recording.lock().unwrap() {
+                recording.stream = Arc::new(Mutex::new(Some(stream)));
+            }
+        }
+        
+        #[cfg(not(target_os = "windows"))]
+        {
+            // On other platforms, we use std::mem::forget to keep the stream alive
+            // The stream will continue recording until stop_recording is called
+            std::mem::forget(stream);
+        }
 
         Ok(info)
     }
@@ -297,6 +369,17 @@ impl SimpleAudioRecorder {
         // Set the end time first
         let ended_at = Utc::now();
         *active_recording.ended_at.lock().unwrap() = Some(ended_at);
+        
+        // On Windows, explicitly stop the stream
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(mut stream_guard) = active_recording.stream.lock() {
+                // Taking the stream and dropping it will stop the recording
+                let _ = stream_guard.take();
+            }
+            // Give Windows audio subsystem time to flush buffers
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
 
         // Close the writer to ensure all data is flushed
         if let Ok(mut writer_guard) = active_recording.writer.lock() {

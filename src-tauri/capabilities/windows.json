@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/windows-schema.json",
+  "identifier": "windows-audio",
+  "description": "Windows-specific audio permissions",
+  "platforms": ["windows"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
+    "shell:allow-open",
+    "core:webview:allow-create-webview-window",
+    "dialog:default",
+    "dialog:allow-open"
+  ],
+  "windows": ["main"]
+}

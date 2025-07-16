@@ -27,7 +27,14 @@ export default function SimpleAudioRecorder() {
       }
     } catch (error) {
       console.error('Failed to load devices:', error)
-      setError('Failed to load audio devices: ' + error)
+      const errorMsg = String(error)
+      if (errorMsg.includes('No audio input devices found')) {
+        setError('No microphone detected. Please check your audio settings and ensure a microphone is connected.')
+      } else if (navigator.userAgent.includes('Windows')) {
+        setError('Failed to load audio devices. On Windows, please ensure microphone permissions are granted in Settings > Privacy > Microphone.')
+      } else {
+        setError('Failed to load audio devices: ' + error)
+      }
     }
   }
 
@@ -46,7 +53,16 @@ export default function SimpleAudioRecorder() {
       setIsRecording(true)
     } catch (error) {
       console.error('Failed to start recording:', error)
-      setError('Failed to start recording: ' + error)
+      const errorMsg = String(error)
+      if (errorMsg.includes('No supported input configurations')) {
+        setError('Audio device not supported. Please try a different microphone.')
+      } else if (errorMsg.includes('Failed to build stream')) {
+        setError('Failed to access microphone. Please ensure no other application is using the microphone.')
+      } else if (navigator.userAgent.includes('Windows')) {
+        setError(`Failed to start recording. Windows error: ${error}\n\nTroubleshooting:\n1. Check microphone permissions in Windows Settings\n2. Ensure no other app is using the microphone\n3. Try restarting the application`)
+      } else {
+        setError('Failed to start recording: ' + error)
+      }
     }
   }
 
@@ -81,7 +97,16 @@ export default function SimpleAudioRecorder() {
         <h3 className="text-xl font-semibold mb-4">Audio Devices</h3>
         
         {devices.length === 0 ? (
-          <p className="text-gray-400">No audio devices found</p>
+          <div className="text-gray-400">
+            <p>No audio devices found</p>
+            {navigator.userAgent.includes('Windows') && (
+              <p className="text-sm mt-2">On Windows, please check:
+                <br />• Microphone is connected
+                <br />• Microphone permissions are enabled in Settings
+                <br />• Audio drivers are up to date
+              </p>
+            )}
+          </div>
         ) : (
           <select
             value={selectedDevice}
