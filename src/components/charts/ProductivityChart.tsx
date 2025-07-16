@@ -9,8 +9,13 @@ interface ProductivityTrend {
   productivity_percentage: number
 }
 
+interface ChartData {
+  time: string
+  score: number
+}
+
 export default function ProductivityChart() {
-  const [data, setData] = useState<any[]>([])
+  const [data, setData] = useState<ChartData[]>([])
   
   useEffect(() => {
     loadProductivityTrend()

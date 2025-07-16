@@ -3,10 +3,11 @@ import { Play, Pause, Monitor, Clock, MousePointer } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import CurrentActivity from './activity/CurrentActivity'
 import ActivityHistory from './activity/ActivityHistory'
+import { Activity } from '../types'
 
 export default function ActivityMonitor() {
   const [isTracking, setIsTracking] = useState(true)
-  const [currentActivity, setCurrentActivity] = useState<any>(null)
+  const [currentActivity, setCurrentActivity] = useState<Activity | null>(null)
 
   useEffect(() => {
     loadCurrentActivity()
@@ -16,7 +17,7 @@ export default function ActivityMonitor() {
 
   const loadCurrentActivity = async () => {
     try {
-      const activity = await invoke('get_current_activity')
+      const activity = await invoke<Activity>('get_current_activity')
       setCurrentActivity(activity)
     } catch (error) {
       console.error('Failed to load current activity:', error)

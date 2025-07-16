@@ -22,7 +22,8 @@ impl LlmClient {
         // If no activities, return helpful getting started message
         if activities.is_empty() {
             return Ok(ProductivityInsights {
-                summary: "No activity data available yet. Start tracking to see insights.".to_string(),
+                summary: "No activity data available yet. Start tracking to see insights."
+                    .to_string(),
                 key_insights: vec![
                     "Enable activity tracking to monitor productivity".to_string(),
                     "Set up goals to track focused work time".to_string(),

@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core'
 import ProductivityChart from './charts/ProductivityChart'
 import ActivityTimeline from './charts/ActivityTimeline'
 import { formatDecimalHours } from '../lib/timeUtils'
+import { Goal, ProductivityStats, ProductivityInsights } from '../types'
 
 interface ProductivityScore {
   overall: number
@@ -54,7 +55,7 @@ export default function Dashboard() {
       console.log('Loading dashboard data...')
       
       // Debug: Check tracking stats first
-      const trackingStats = await invoke<any>('get_tracking_stats')
+      const trackingStats = await invoke<ProductivityStats>('get_tracking_stats')
       console.log('Tracking stats:', trackingStats)
 
       // Get productivity score
@@ -76,7 +77,7 @@ export default function Dashboard() {
 
       // Get goals
       try {
-        const goals = await invoke<any[]>('get_goals')
+        const goals = await invoke<Goal[]>('get_goals')
         console.log('Goals:', goals)
         setActiveGoals(goals.filter(g => g.is_active).length)
       } catch (error) {
@@ -86,9 +87,9 @@ export default function Dashboard() {
 
       // Get productivity insights
       try {
-        const insightsData = await invoke<any>('get_productivity_insights', { hours: 8 })
+        const insightsData = await invoke<ProductivityInsights>('get_productivity_insights', { hours: 8 })
         console.log('Insights:', insightsData)
-        setInsights(insightsData.key_insights || [])
+        setInsights(insightsData.insights || [])
       } catch (error) {
         console.error('Failed to get insights:', error)
         setInsights(['Start tracking to see insights'])
@@ -96,9 +97,9 @@ export default function Dashboard() {
 
       // Get today's hours from database
       try {
-        const todayStats = await invoke<any>('get_today_stats')
+        const todayStats = await invoke<ProductivityStats>('get_today_stats')
         console.log('Today stats:', todayStats)
-        const hours = todayStats.total_minutes / 60
+        const hours = todayStats.total_tracked_seconds / 3600
         setTodayHours(hours)
         console.log('Today\'s hours:', hours)
       } catch (error) {

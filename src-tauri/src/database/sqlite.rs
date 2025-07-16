@@ -1,5 +1,8 @@
 use crate::error::{AppError, Result};
-use crate::models::{Activity, Goal, ResearchTask, SavedResearchTask, ChatConversation, ChatMessage, ChatMode, ChatConversationSummary};
+use crate::models::{
+    Activity, ChatConversation, ChatConversationSummary, ChatMessage, ChatMode, Goal, ResearchTask,
+    SavedResearchTask,
+};
 use chrono::{DateTime, Utc};
 use dirs::data_dir;
 use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
@@ -244,9 +247,7 @@ impl SqliteDatabase {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            AppError::Database(format!("Failed to create chat_messages table: {}", e))
-        })?;
+        .map_err(|e| AppError::Database(format!("Failed to create chat_messages table: {}", e)))?;
 
         // Create indices for chat tables
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_id ON chat_messages(conversation_id)")
@@ -256,19 +257,29 @@ impl SqliteDatabase {
                 AppError::Database(format!("Failed to create chat_messages conversation_id index: {}", e))
             })?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at)")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::Database(format!("Failed to create chat_messages created_at index: {}", e))
-            })?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::Database(format!(
+                "Failed to create chat_messages created_at index: {}",
+                e
+            ))
+        })?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chat_conversations_mode ON chat_conversations(mode)")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::Database(format!("Failed to create chat_conversations mode index: {}", e))
-            })?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_chat_conversations_mode ON chat_conversations(mode)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::Database(format!(
+                "Failed to create chat_conversations mode index: {}",
+                e
+            ))
+        })?;
 
         Ok(())
     }
@@ -903,7 +914,10 @@ impl SqliteDatabase {
         Ok(conversations)
     }
 
-    pub async fn get_conversation_messages(&self, conversation_id: Uuid) -> Result<Vec<ChatMessage>> {
+    pub async fn get_conversation_messages(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<Vec<ChatMessage>> {
         let rows = sqlx::query(
             r#"
             SELECT id, conversation_id, content, is_user, mode, created_at,
@@ -929,9 +943,8 @@ impl SqliteDatabase {
             };
 
             messages.push(ChatMessage {
-                id: Uuid::parse_str(&row.get::<String, _>("id")).map_err(|e| {
-                    AppError::Database(format!("Invalid UUID in message: {}", e))
-                })?,
+                id: Uuid::parse_str(&row.get::<String, _>("id"))
+                    .map_err(|e| AppError::Database(format!("Invalid UUID in message: {}", e)))?,
                 conversation_id: Uuid::parse_str(&row.get::<String, _>("conversation_id"))
                     .map_err(|e| AppError::Database(format!("Invalid conversation UUID: {}", e)))?,
                 content: row.get("content"),
@@ -961,16 +974,20 @@ impl SqliteDatabase {
         Ok(())
     }
 
-    pub async fn update_conversation_title(&self, conversation_id: Uuid, title: String) -> Result<()> {
-        sqlx::query(
-            "UPDATE chat_conversations SET title = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(title)
-        .bind(Utc::now().to_rfc3339())
-        .bind(conversation_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::Database(format!("Failed to update conversation title: {}", e)))?;
+    pub async fn update_conversation_title(
+        &self,
+        conversation_id: Uuid,
+        title: String,
+    ) -> Result<()> {
+        sqlx::query("UPDATE chat_conversations SET title = ?, updated_at = ? WHERE id = ?")
+            .bind(title)
+            .bind(Utc::now().to_rfc3339())
+            .bind(conversation_id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::Database(format!("Failed to update conversation title: {}", e))
+            })?;
 
         Ok(())
     }

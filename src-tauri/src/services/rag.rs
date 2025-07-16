@@ -33,7 +33,10 @@ pub async fn index_document(
         Some(goal_service.get_current_or_default_goal_id())
     };
 
-    println!("Indexing document synchronously: {} for goal: {:?}", file_path, goal_uuid);
+    println!(
+        "Indexing document synchronously: {} for goal: {:?}",
+        file_path, goal_uuid
+    );
     let document = rag
         .index_document(&file_path, goal_uuid)
         .await
@@ -121,7 +124,10 @@ pub async fn index_document_async(
         // Perform actual indexing
         let mut rag = rag_system.lock().await;
 
-        println!("Starting to index document: {} for goal: {:?}", file_path, goal_uuid);
+        println!(
+            "Starting to index document: {} for goal: {:?}",
+            file_path, goal_uuid
+        );
         match rag.index_document(&file_path, goal_uuid).await {
             Ok(document) => {
                 println!(
@@ -192,7 +198,10 @@ pub async fn search_documents(
         Some(goal_service.get_current_or_default_goal_id())
     };
 
-    println!("Searching documents with query: '{}' for goal: {:?}", query, goal_uuid);
+    println!(
+        "Searching documents with query: '{}' for goal: {:?}",
+        query, goal_uuid
+    );
 
     let results = rag
         .search(&query, goal_uuid, limit.unwrap_or(10))
@@ -210,7 +219,11 @@ pub async fn search_documents(
         })
         .collect();
 
-    println!("Found {} search results for goal: {:?}", response.len(), goal_uuid);
+    println!(
+        "Found {} search results for goal: {:?}",
+        response.len(),
+        goal_uuid
+    );
     Ok(response)
 }
 
@@ -277,7 +290,11 @@ pub async fn list_indexed_documents(
         })
         .collect();
 
-    println!("Found {} documents for goal: {:?}", response.len(), goal_uuid);
+    println!(
+        "Found {} documents for goal: {:?}",
+        response.len(),
+        goal_uuid
+    );
     Ok(response)
 }
 

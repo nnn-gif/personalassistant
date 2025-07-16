@@ -796,7 +796,7 @@ impl EnhancedDocumentProcessor {
 
         // Trim and normalize whitespace
         println!("🔧 Normalizing whitespace...");
-        let before_normalize = cleaned.len();
+        let _before_normalize = cleaned.len();
         let lines: Vec<&str> = cleaned
             .lines()
             .map(|line| line.trim())

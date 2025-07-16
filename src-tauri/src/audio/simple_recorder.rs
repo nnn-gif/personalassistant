@@ -97,7 +97,7 @@ impl SimpleAudioRecorder {
                                 sample_rate: 48000, // Default, would need to read from file
                                 channels: 2,        // Default
                                 transcription: None, // Will be loaded from database if available
-                                goal_id: None, // Existing recordings not associated with goals
+                                goal_id: None,      // Existing recordings not associated with goals
                             });
                         }
                     }
@@ -137,7 +137,11 @@ impl SimpleAudioRecorder {
         self.start_recording_with_goal(device_name, None)
     }
 
-    pub fn start_recording_with_goal(&self, device_name: Option<String>, goal_id: Option<String>) -> Result<RecordingInfo> {
+    pub fn start_recording_with_goal(
+        &self,
+        device_name: Option<String>,
+        goal_id: Option<String>,
+    ) -> Result<RecordingInfo> {
         let host = cpal::default_host();
 
         // Get the device

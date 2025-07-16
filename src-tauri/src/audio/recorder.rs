@@ -256,7 +256,7 @@ impl CpalRecorder {
 }
 
 impl CpalRecorder {
-    fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
+    fn start_recording(&mut self, _devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
         let host = cpal::default_host();
@@ -323,7 +323,7 @@ impl CpalRecorder {
             started_at: Utc::now(),
             duration_seconds: 0.0,
             method: RecordingMethod::CPAL,
-            devices,
+            devices: _devices,
             file_path,
         })
     }
@@ -418,7 +418,7 @@ impl CoreAudioRecorder {
 
 #[cfg(target_os = "macos")]
 impl Recorder for CoreAudioRecorder {
-    fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
+    fn start_recording(&mut self, _devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         // Use Core Audio APIs
         Err(AppError::Audio("Core Audio not implemented yet".into()))
     }
@@ -482,7 +482,7 @@ impl ScreenCaptureRecorder {
 }
 
 impl Recorder for ScreenCaptureRecorder {
-    fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
+    fn start_recording(&mut self, _devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         Err(AppError::Audio(
             "ScreenCaptureKit not implemented yet".into(),
         ))
@@ -523,7 +523,7 @@ impl WebRTCRecorder {
 }
 
 impl Recorder for WebRTCRecorder {
-    fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
+    fn start_recording(&mut self, _devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         Err(AppError::Audio("WebRTC not implemented yet".into()))
     }
 
@@ -558,7 +558,7 @@ impl AppleScriptRecorder {
 }
 
 impl Recorder for AppleScriptRecorder {
-    fn start_recording(&mut self, devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
+    fn start_recording(&mut self, _devices: Vec<AudioDevice>) -> Result<RecordingInfo> {
         use std::process::Command;
 
         let id = Uuid::new_v4();
@@ -601,7 +601,7 @@ impl Recorder for AppleScriptRecorder {
             started_at: Utc::now(),
             duration_seconds: 0.0,
             method: RecordingMethod::AppleScript,
-            devices,
+            devices: _devices,
             file_path,
         })
     }

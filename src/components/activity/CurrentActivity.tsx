@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion'
 import { Monitor, Folder, Globe, Terminal, Target } from 'lucide-react'
+import { Activity } from '../../types'
 
 interface CurrentActivityProps {
-  activity: any
+  activity: Activity | null
 }
 
 export default function CurrentActivity({ activity }: CurrentActivityProps) {

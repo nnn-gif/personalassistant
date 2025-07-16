@@ -1,7 +1,7 @@
 use crate::database::SqliteDatabase;
 use crate::error::Result;
-use crate::models::{ChatConversation, ChatMessage, ChatMode, ChatConversationSummary};
 use crate::goals::GoalService;
+use crate::models::{ChatConversation, ChatConversationSummary, ChatMessage, ChatMode};
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -33,7 +33,10 @@ pub async fn create_chat_conversation(
     let db = db.lock().await;
     match db.create_conversation(&conversation).await {
         Ok(_) => {
-            println!("Created chat conversation: {} for goal: {}", conversation_id, goal_id);
+            println!(
+                "Created chat conversation: {} for goal: {}",
+                conversation_id, goal_id
+            );
             Ok(conversation_id.to_string())
         }
         Err(e) => {
@@ -55,8 +58,8 @@ pub async fn save_chat_message(
     research_task_id: Option<String>,
     metadata: Option<String>,
 ) -> std::result::Result<String, String> {
-    let conversation_uuid = Uuid::parse_str(&conversation_id)
-        .map_err(|e| format!("Invalid conversation ID: {}", e))?;
+    let conversation_uuid =
+        Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {}", e))?;
 
     let chat_mode = match mode.as_str() {
         "general" => ChatMode::General,
@@ -108,13 +111,17 @@ pub async fn get_chat_messages(
     db: State<'_, Arc<Mutex<SqliteDatabase>>>,
     conversation_id: String,
 ) -> std::result::Result<Vec<ChatMessage>, String> {
-    let conversation_uuid = Uuid::parse_str(&conversation_id)
-        .map_err(|e| format!("Invalid conversation ID: {}", e))?;
+    let conversation_uuid =
+        Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {}", e))?;
 
     let db = db.lock().await;
     match db.get_conversation_messages(conversation_uuid).await {
         Ok(messages) => {
-            println!("Retrieved {} messages for conversation {}", messages.len(), conversation_id);
+            println!(
+                "Retrieved {} messages for conversation {}",
+                messages.len(),
+                conversation_id
+            );
             Ok(messages)
         }
         Err(e) => {
@@ -129,8 +136,8 @@ pub async fn delete_chat_conversation(
     db: State<'_, Arc<Mutex<SqliteDatabase>>>,
     conversation_id: String,
 ) -> std::result::Result<(), String> {
-    let conversation_uuid = Uuid::parse_str(&conversation_id)
-        .map_err(|e| format!("Invalid conversation ID: {}", e))?;
+    let conversation_uuid =
+        Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {}", e))?;
 
     let db = db.lock().await;
     match db.delete_conversation(conversation_uuid).await {
@@ -151,8 +158,8 @@ pub async fn update_chat_conversation_title(
     conversation_id: String,
     title: String,
 ) -> std::result::Result<(), String> {
-    let conversation_uuid = Uuid::parse_str(&conversation_id)
-        .map_err(|e| format!("Invalid conversation ID: {}", e))?;
+    let conversation_uuid =
+        Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {}", e))?;
 
     let db = db.lock().await;
     match db.update_conversation_title(conversation_uuid, title).await {

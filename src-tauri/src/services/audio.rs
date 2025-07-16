@@ -39,17 +39,17 @@ pub async fn start_audio_recording(
     _app: tauri::AppHandle,
 ) -> Result<String> {
     let device_name = devices.first().cloned();
-    
+
     // Get the current active goal or default goal
     let goal_id = {
         let goal_service = goal_service.lock().await;
         Some(goal_service.get_current_or_default_goal_id().to_string())
     };
-    
+
     let info = recorder.start_recording_with_goal(device_name, goal_id)?;
 
     println!("Started audio recording with goal: {:?}", info);
-    
+
     // Return recording info as JSON
     Ok(serde_json::to_string(&info)?)
 }
@@ -57,13 +57,19 @@ pub async fn start_audio_recording(
 #[tauri::command]
 pub async fn stop_audio_recording(recorder: State<'_, Arc<SimpleAudioRecorder>>) -> Result<String> {
     let recording = recorder.stop_recording()?;
-    
+
     if let Some(ref goal_id) = recording.goal_id {
-        println!("Stopped audio recording: {} associated with goal: {}", recording.id, goal_id);
+        println!(
+            "Stopped audio recording: {} associated with goal: {}",
+            recording.id, goal_id
+        );
     } else {
-        println!("Stopped audio recording: {} (no goal association)", recording.id);
+        println!(
+            "Stopped audio recording: {} (no goal association)",
+            recording.id
+        );
     }
-    
+
     Ok(serde_json::to_string(&recording)?)
 }
 

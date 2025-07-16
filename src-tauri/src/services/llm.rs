@@ -17,8 +17,11 @@ pub async fn get_productivity_insights(
         let tracker = activity_tracker.lock().await;
         tracker.get_recent_activities(hours * 20) // Estimate 20 activities per hour
     };
-    
-    println!("Generating productivity insights from {} activities", activities.len());
+
+    println!(
+        "Generating productivity insights from {} activities",
+        activities.len()
+    );
     llm.generate_productivity_insights(&activities).await
 }
 
@@ -33,8 +36,11 @@ pub async fn get_productivity_score(
         let tracker = activity_tracker.lock().await;
         tracker.get_recent_activities(hours * 20) // Estimate 20 activities per hour
     };
-    
-    println!("Generating productivity score from {} activities", activities.len());
+
+    println!(
+        "Generating productivity score from {} activities",
+        activities.len()
+    );
     llm.generate_productivity_score(&activities).await
 }
 
@@ -49,8 +55,11 @@ pub async fn get_recommendations(
         let tracker = activity_tracker.lock().await;
         tracker.get_recent_activities(hours * 20) // Estimate 20 activities per hour
     };
-    
-    println!("Generating recommendations from {} activities", activities.len());
+
+    println!(
+        "Generating recommendations from {} activities",
+        activities.len()
+    );
     llm.generate_recommendations(&activities).await
 }
 
@@ -236,13 +245,13 @@ pub async fn general_chat(
     model: Option<String>,
 ) -> std::result::Result<String, String> {
     println!("Starting general chat with message: {message}");
-    
+
     let model_name = model.unwrap_or_else(|| "llama3.2:1b".to_string());
-    
+
     let prompt = format!(
         "You are a helpful AI assistant. Please respond to the following message in a conversational and helpful manner:\n\n{message}"
     );
-    
+
     match llm.send_request_with_model(&prompt, &model_name).await {
         Ok(response) => {
             println!("Generated response for general chat");

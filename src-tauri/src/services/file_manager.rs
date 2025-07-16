@@ -102,7 +102,11 @@ pub async fn index_multiple_documents(
         Some(goal_service.get_current_or_default_goal_id())
     };
 
-    println!("Indexing {} documents for goal: {:?}", file_paths.len(), goal_uuid);
+    println!(
+        "Indexing {} documents for goal: {:?}",
+        file_paths.len(),
+        goal_uuid
+    );
 
     let mut successful = Vec::new();
     let mut failed = Vec::new();
@@ -110,7 +114,10 @@ pub async fn index_multiple_documents(
     for file_path in file_paths {
         match rag.index_document(&file_path, goal_uuid).await {
             Ok(document) => {
-                println!("Successfully indexed: {} for goal: {:?}", document.title, goal_uuid);
+                println!(
+                    "Successfully indexed: {} for goal: {:?}",
+                    document.title, goal_uuid
+                );
                 successful.push(IndexedDocumentInfo {
                     id: document.id.to_string(),
                     path: file_path,
@@ -129,8 +136,12 @@ pub async fn index_multiple_documents(
     }
 
     let total_processed = successful.len() + failed.len();
-    println!("Batch indexing completed: {} successful, {} failed for goal: {:?}", 
-             successful.len(), failed.len(), goal_uuid);
+    println!(
+        "Batch indexing completed: {} successful, {} failed for goal: {:?}",
+        successful.len(),
+        failed.len(),
+        goal_uuid
+    );
 
     Ok(IndexingResult {
         successful,

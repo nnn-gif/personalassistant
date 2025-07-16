@@ -8,8 +8,14 @@ interface AppUsageData {
   is_productive: boolean
 }
 
+interface ChartData {
+  app: string
+  minutes: number
+  productive: boolean
+}
+
 export default function ActivityTimeline() {
-  const [data, setData] = useState<any[]>([])
+  const [data, setData] = useState<ChartData[]>([])
   
   useEffect(() => {
     loadAppUsageStats()

@@ -74,12 +74,7 @@ impl ChatConversation {
 }
 
 impl ChatMessage {
-    pub fn new(
-        conversation_id: Uuid,
-        content: String,
-        is_user: bool,
-        mode: ChatMode,
-    ) -> Self {
+    pub fn new(conversation_id: Uuid, content: String, is_user: bool, mode: ChatMode) -> Self {
         Self {
             id: Uuid::new_v4(),
             conversation_id,

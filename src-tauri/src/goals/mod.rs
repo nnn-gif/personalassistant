@@ -62,18 +62,18 @@ impl GoalService {
         // Check if default goal exists
         if !self.goals_cache.contains_key(&default_id) {
             println!("Creating default Master Goal...");
-            
+
             // Create the default goal with a special UUID
             let mut default_goal = Goal::new(
                 DEFAULT_GOAL_NAME.to_string(),
-                0, // Unlimited duration for master goal
+                0,      // Unlimited duration for master goal
                 vec![], // All apps allowed
             );
             default_goal.id = default_id;
 
             // Save to database
             self.save_goal(&default_goal).await?;
-            
+
             // Add to cache
             self.goals_cache.insert(default_id, default_goal);
             self.sessions.insert(default_id, Vec::new());
@@ -95,11 +95,12 @@ impl GoalService {
     }
 
     pub fn get_default_goal_id() -> Uuid {
-        Uuid::parse_str(DEFAULT_GOAL_ID_STR).unwrap()
+        Uuid::parse_str(DEFAULT_GOAL_ID_STR).expect("Default goal ID should be a valid UUID")
     }
 
     pub fn get_current_or_default_goal_id(&self) -> Uuid {
-        self.active_goal_id.unwrap_or_else(Self::get_default_goal_id)
+        self.active_goal_id
+            .unwrap_or_else(Self::get_default_goal_id)
     }
 
     async fn save_goal(&self, goal: &Goal) -> Result<()> {
@@ -145,7 +146,7 @@ impl GoalService {
 
             // Clone the goal before saving to avoid borrow checker issues
             let goal_to_save = goal.clone();
-            
+
             // Save to database
             self.save_goal(&goal_to_save).await?;
 
@@ -157,7 +158,7 @@ impl GoalService {
 
     pub async fn activate_goal(&mut self, goal_id: Uuid) -> Result<()> {
         println!("Activating goal: {}", goal_id);
-        
+
         // Deactivate any currently active goal
         if let Some(active_id) = self.active_goal_id {
             println!("Deactivating currently active goal: {}", active_id);
@@ -184,7 +185,11 @@ impl GoalService {
         self.active_goal_id = Some(goal_id);
 
         // Save to database
-        let goal = self.goals_cache.get(&goal_id).unwrap().clone();
+        let goal = self
+            .goals_cache
+            .get(&goal_id)
+            .ok_or_else(|| AppError::NotFound(format!("Goal {} not found in cache", goal_id)))?
+            .clone();
         self.save_goal(&goal).await?;
         println!("Goal saved to database: {}", goal.name);
 
@@ -197,7 +202,11 @@ impl GoalService {
             duration_minutes: 0,
         };
 
-        self.sessions.get_mut(&goal_id).unwrap().push(session);
+        if let Some(sessions) = self.sessions.get_mut(&goal_id) {
+            sessions.push(session);
+        } else {
+            self.sessions.insert(goal_id, vec![session]);
+        }
         println!("Goal activation completed: {}", goal_id);
 
         Ok(())
@@ -211,11 +220,9 @@ impl GoalService {
         if let Some(sessions) = self.sessions.get_mut(&goal_id) {
             if let Some(session) = sessions.last_mut() {
                 if session.end_time.is_none() {
-                    session.end_time = Some(Utc::now());
-                    let duration = session
-                        .end_time
-                        .unwrap()
-                        .signed_duration_since(session.start_time);
+                    let end_time = Utc::now();
+                    session.end_time = Some(end_time);
+                    let duration = end_time.signed_duration_since(session.start_time);
                     session.duration_minutes = (duration.num_seconds() / 60) as u32;
                     additional_minutes = session.duration_minutes;
                 }
@@ -241,7 +248,11 @@ impl GoalService {
         }
 
         // Save to database
-        let goal = self.goals_cache.get(&goal_id).unwrap().clone();
+        let goal = self
+            .goals_cache
+            .get(&goal_id)
+            .ok_or_else(|| AppError::NotFound(format!("Goal {} not found in cache", goal_id)))?
+            .clone();
         self.save_goal(&goal).await?;
         println!("Goal deactivation completed: {}", goal_id);
 
@@ -268,12 +279,16 @@ impl GoalService {
     pub fn get_active_goal_info(&self) -> Option<(Uuid, Vec<String>)> {
         // Always return a goal - either the active one or the default Master Goal
         let goal_id = self.get_current_or_default_goal_id();
-        
-        self.goals_cache.get(&goal_id)
+
+        self.goals_cache
+            .get(&goal_id)
             .map(|goal| (goal.id, goal.allowed_apps.clone()))
             .or_else(|| {
                 // Fallback: if for some reason the goal isn't in cache, return default with all apps allowed
-                println!("Warning: Goal {} not found in cache, using fallback", goal_id);
+                println!(
+                    "Warning: Goal {} not found in cache, using fallback",
+                    goal_id
+                );
                 Some((goal_id, vec![]))
             })
     }
@@ -295,8 +310,9 @@ impl GoalService {
                     goal.update_progress(minutes);
                 }
                 // Save to database
-                let goal = self.goals_cache.get(&goal_id).unwrap();
-                self.save_goal(goal).await?;
+                if let Some(goal) = self.goals_cache.get(&goal_id) {
+                    self.save_goal(goal).await?;
+                }
             }
         }
 
@@ -310,7 +326,7 @@ impl GoalService {
     ) -> Result<()> {
         // Always use the current or default goal
         let goal_id = self.get_current_or_default_goal_id();
-        
+
         let should_update = self
             .goals_cache
             .get(&goal_id)
@@ -322,8 +338,9 @@ impl GoalService {
                 goal.update_progress_seconds(seconds);
             }
             // Save to database
-            let goal = self.goals_cache.get(&goal_id).unwrap();
-            self.save_goal(goal).await?;
+            if let Some(goal) = self.goals_cache.get(&goal_id) {
+                self.save_goal(goal).await?;
+            }
         }
 
         Ok(())

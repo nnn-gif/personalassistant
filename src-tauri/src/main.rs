@@ -9,16 +9,15 @@ mod browser_ai;
 mod database;
 mod error;
 mod goals;
+mod init;
 mod llm;
 mod models;
 mod rag;
 mod services;
 mod storage;
 
-use database::SqliteDatabase;
-use std::sync::Arc;
-use storage::LocalStorage;
-use tauri::{generate_context, generate_handler, Manager};
+use init::AppServices;
+use tauri::{generate_context, generate_handler};
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -27,172 +26,19 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Initialize services synchronously
-            let activity_tracker = Arc::new(tokio::sync::Mutex::new(
-                activity_tracking::ActivityTracker::new(),
-            ));
-            app.manage(activity_tracker.clone());
-
-            let browser_ai = browser_ai::BrowserAIAgent::new();
-            app.manage(Arc::new(tokio::sync::Mutex::new(browser_ai)));
-
-            let llm_client = llm::LlmClient::new();
-            app.manage(Arc::new(llm_client));
-
-            match audio::SimpleAudioRecorder::new() {
-                Ok(recorder) => {
-                    app.manage(Arc::new(recorder));
-                }
-                Err(e) => {
-                    eprintln!("Failed to initialize audio recorder: {}", e);
-                }
-            }
-
-            // Initialize SQLite database
-            let db = tauri::async_runtime::block_on(async {
-                match SqliteDatabase::new().await {
-                    Ok(db) => {
-                        println!("SQLite database initialized successfully");
-                        Some(Arc::new(tokio::sync::Mutex::new(db)))
-                    }
+            let services = tauri::async_runtime::block_on(async {
+                match AppServices::initialize(app).await {
+                    Ok(services) => services,
                     Err(e) => {
-                        eprintln!("Failed to initialize SQLite database: {}", e);
-                        None
+                        tracing::error!("Failed to initialize app services: {}", e);
+                        panic!("Failed to initialize app services: {}", e);
                     }
                 }
             });
 
-            if let Some(db) = db.clone() {
-                app.manage(db.clone());
-            }
-
-            // Initialize RAG system with automatic fallback
-            let rag_system = tauri::async_runtime::block_on(async {
-                println!("Initializing RAG system...");
-                match rag::RAGSystem::new_with_automatic_fallback().await {
-                    Ok(mut rag_wrapper) => {
-                        println!("RAG system wrapper created successfully");
-                        // Connect RAG system to database if available
-                        if let Some(db) = &db {
-                            println!("Setting database for RAG system");
-                            rag_wrapper.set_database(db.clone()).await;
-
-                            // Load existing documents from database
-                            if let Err(e) = rag_wrapper.load_from_database().await {
-                                eprintln!("Failed to load documents from database: {}", e);
-                            } else {
-                                println!(
-                                    "RAG system initialized successfully with database persistence"
-                                );
-                            }
-                        } else {
-                            println!("RAG system initialized without database");
-                        }
-
-                        Some(Arc::new(tokio::sync::Mutex::new(rag_wrapper)))
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to initialize RAG system: {}", e);
-                        None
-                    }
-                }
-            });
-
-            if let Some(rag) = rag_system {
-                app.manage(rag);
-            }
-
-            // Initialize storage (for migration purposes)
-            let storage = match LocalStorage::new() {
-                Ok(storage) => {
-                    println!("Local storage initialized successfully");
-                    Some(storage)
-                }
-                Err(e) => {
-                    eprintln!("Failed to initialize local storage: {}", e);
-                    None
-                }
-            };
-
-            // Initialize goal service with database
-            let goal_service = Arc::new(tokio::sync::Mutex::new(goals::GoalService::new()));
-            if let Some(db) = &db {
-                let mut service = goal_service.blocking_lock();
-                service.set_database(db.clone());
-                // Load existing goals
-                tauri::async_runtime::block_on(async {
-                    if let Err(e) = service.load_from_database().await {
-                        eprintln!("Failed to load goals from database: {}", e);
-                    } else {
-                        println!("Goals loaded from database successfully");
-                    }
-                });
-            }
-            app.manage(goal_service.clone());
-
-            // Update activity tracker to use database
-            if let Some(db) = &db {
-                let mut tracker = activity_tracker.blocking_lock();
-                tracker.set_database(db.clone());
-            }
-
-            // Migrate existing data if needed
-            if let (Some(db), Some(storage)) = (db, storage) {
-                tauri::async_runtime::spawn(async move {
-                    let db = db.lock().await;
-                    if let Err(e) = db.import_from_storage(&storage).await {
-                        eprintln!("Failed to migrate data from storage: {}", e);
-                    } else {
-                        println!("Successfully migrated data to SQLite");
-                    }
-                });
-            }
-
-            // Start activity tracking background task
-            let tracker_clone = activity_tracker.clone();
-            let goal_service_clone = goal_service.clone();
-            tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
-                loop {
-                    interval.tick().await;
-                    let mut tracker = tracker_clone.lock().await;
-                    if tracker.is_tracking() {
-                        // Get active goal info
-                        let active_goal_info = {
-                            let goal_service = goal_service_clone.lock().await;
-                            goal_service.get_active_goal_info()
-                        };
-
-                        match tracker.collect_activity(active_goal_info).await {
-                            Ok(activity) => {
-                                let goal_msg = if activity.goal_id.is_some() {
-                                    " [Goal tracked]"
-                                } else {
-                                    ""
-                                };
-                                println!(
-                                    "Activity collected: {} - {}{}",
-                                    activity.app_usage.app_name,
-                                    activity.app_usage.window_title,
-                                    goal_msg
-                                );
-
-                                // Update goal progress if activity is part of active goal
-                                if activity.goal_id.is_some() {
-                                    let mut goal_service = goal_service_clone.lock().await;
-                                    let _ = goal_service.update_active_goal_progress_seconds(
-                                        &activity.app_usage.app_name,
-                                        activity.duration_seconds as u32,
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to collect activity: {}", e);
-                            }
-                        }
-                    }
-                }
-            });
+            // Start background tasks
+            services.spawn_activity_tracking();
+            services.spawn_migration();
 
             Ok(())
         })

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Mic, Square } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
+import { AudioDevice, RecordingInfo } from '../types'
 
 export default function SimpleAudioRecorder() {
-  const [devices, setDevices] = useState<any[]>([])
+  const [devices, setDevices] = useState<AudioDevice[]>([])
   const [selectedDevice, setSelectedDevice] = useState<string>('')
   const [isRecording, setIsRecording] = useState(false)
-  const [recordingInfo, setRecordingInfo] = useState<any>(null)
+  const [recordingInfo, setRecordingInfo] = useState<RecordingInfo | null>(null)
   const [error, setError] = useState<string>('')
 
   useEffect(() => {
@@ -16,7 +17,7 @@ export default function SimpleAudioRecorder() {
   const loadDevices = async () => {
     try {
       console.log('Loading audio devices...')
-      const deviceList = await invoke<any[]>('list_audio_devices')
+      const deviceList = await invoke<AudioDevice[]>('list_audio_devices')
       console.log('Devices loaded:', deviceList)
       setDevices(deviceList)
       
@@ -35,7 +36,7 @@ export default function SimpleAudioRecorder() {
     console.log('Starting recording with device:', selectedDevice)
     
     try {
-      const result = await invoke('start_audio_recording', {
+      const result = await invoke<RecordingInfo>('start_audio_recording', {
         devices: selectedDevice ? [selectedDevice] : [],
         title: `Recording ${new Date().toLocaleString()}`
       })
@@ -43,7 +44,7 @@ export default function SimpleAudioRecorder() {
       console.log('Recording started:', result)
       setRecordingInfo(result)
       setIsRecording(true)
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to start recording:', error)
       setError('Failed to start recording: ' + error)
     }
@@ -57,7 +58,7 @@ export default function SimpleAudioRecorder() {
       console.log('Recording stopped:', result)
       setIsRecording(false)
       setRecordingInfo(null)
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to stop recording:', error)
       setError('Failed to stop recording: ' + error)
     }

@@ -71,7 +71,7 @@ impl Goal {
         if self.allowed_apps.is_empty() {
             return true;
         }
-        
+
         self.allowed_apps
             .iter()
             .any(|allowed| allowed.to_lowercase() == app_name.to_lowercase())
