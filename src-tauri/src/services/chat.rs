@@ -1,5 +1,4 @@
 use crate::database::SqliteDatabase;
-use crate::error::Result;
 use crate::goals::GoalService;
 use crate::models::{ChatConversation, ChatConversationSummary, ChatMessage, ChatMode};
 use std::sync::Arc;

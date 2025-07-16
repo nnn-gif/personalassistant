@@ -131,7 +131,6 @@ impl AppServices {
         app.manage(self.goal_service.clone());
     }
 
-
     pub fn spawn_activity_tracking(&self) {
         let tracker_clone = self.activity_tracker.clone();
         let goal_service_clone = self.goal_service.clone();
@@ -180,10 +179,10 @@ impl AppServices {
             }
         });
     }
-    
+
     pub fn spawn_migration(&self) {
         let database = self.database.clone();
-        
+
         tauri::async_runtime::spawn(async move {
             if let Some(db) = database {
                 match LocalStorage::new() {

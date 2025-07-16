@@ -1,5 +1,5 @@
-use crate::error::{AppError, Result};
 use crate::audio::simple_recorder::{AudioRecording, RecordingInfo};
+use crate::error::{AppError, Result};
 use chrono::Utc;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{WavSpec, WavWriter};
@@ -43,14 +43,18 @@ impl WindowsAudioRecorder {
         })
     }
 
-    pub fn start_recording(&self, device_name: Option<String>, goal_id: Option<String>) -> Result<RecordingInfo> {
+    pub fn start_recording(
+        &self,
+        device_name: Option<String>,
+        goal_id: Option<String>,
+    ) -> Result<RecordingInfo> {
         // Ensure no recording is in progress
         if self.current_recording.lock().unwrap().is_some() {
             return Err(AppError::Audio("Recording already in progress".to_string()));
         }
 
         let host = cpal::default_host();
-        
+
         // Get the device
         let device = if let Some(name) = device_name {
             host.input_devices()
@@ -67,9 +71,11 @@ impl WindowsAudioRecorder {
             .supported_input_configs()
             .map_err(|e| AppError::Audio(format!("Failed to get supported configs: {e}")))?
             .collect::<Vec<_>>();
-        
+
         if supported_configs.is_empty() {
-            return Err(AppError::Audio("No supported input configurations found".to_string()));
+            return Err(AppError::Audio(
+                "No supported input configurations found".to_string(),
+            ));
         }
 
         // Sort by sample rate and channels to get the best quality
@@ -78,7 +84,7 @@ impl WindowsAudioRecorder {
             let b_rate = b.max_sample_rate().0;
             let a_channels = a.channels() as u32;
             let b_channels = b.channels() as u32;
-            
+
             // Prefer higher sample rate and more channels
             (b_rate * b_channels).cmp(&(a_rate * a_channels))
         });
@@ -131,14 +137,15 @@ impl WindowsAudioRecorder {
         };
 
         let stream = match sample_format {
-            cpal::SampleFormat::F32 => {
-                device.build_input_stream(
+            cpal::SampleFormat::F32 => device
+                .build_input_stream(
                     &stream_config,
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         if let Ok(mut guard) = writer_clone.lock() {
                             if let Some(ref mut writer) = *guard {
                                 for &sample in data {
-                                    let sample_i16 = (sample * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                                    let sample_i16 =
+                                        (sample * 32767.0).clamp(-32768.0, 32767.0) as i16;
                                     let _ = writer.write_sample(sample_i16);
                                 }
                                 if let Ok(mut count) = sample_count_clone.lock() {
@@ -150,10 +157,9 @@ impl WindowsAudioRecorder {
                     err_fn,
                     None,
                 )
-                .map_err(|e| AppError::Audio(format!("Failed to build F32 stream: {e}")))?
-            }
-            cpal::SampleFormat::I16 => {
-                device.build_input_stream(
+                .map_err(|e| AppError::Audio(format!("Failed to build F32 stream: {e}")))?,
+            cpal::SampleFormat::I16 => device
+                .build_input_stream(
                     &stream_config,
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         if let Ok(mut guard) = writer_clone.lock() {
@@ -170,16 +176,16 @@ impl WindowsAudioRecorder {
                     err_fn,
                     None,
                 )
-                .map_err(|e| AppError::Audio(format!("Failed to build I16 stream: {e}")))?
-            }
-            cpal::SampleFormat::U16 => {
-                device.build_input_stream(
+                .map_err(|e| AppError::Audio(format!("Failed to build I16 stream: {e}")))?,
+            cpal::SampleFormat::U16 => device
+                .build_input_stream(
                     &stream_config,
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
                         if let Ok(mut guard) = writer_clone.lock() {
                             if let Some(ref mut writer) = *guard {
                                 for &sample in data {
-                                    let sample_i16 = (sample as i32 - 32768).clamp(-32768, 32767) as i16;
+                                    let sample_i16 =
+                                        (sample as i32 - 32768).clamp(-32768, 32767) as i16;
                                     let _ = writer.write_sample(sample_i16);
                                 }
                                 if let Ok(mut count) = sample_count_clone.lock() {
@@ -191,13 +197,18 @@ impl WindowsAudioRecorder {
                     err_fn,
                     None,
                 )
-                .map_err(|e| AppError::Audio(format!("Failed to build U16 stream: {e}")))?
+                .map_err(|e| AppError::Audio(format!("Failed to build U16 stream: {e}")))?,
+            _ => {
+                return Err(AppError::Audio(format!(
+                    "Unsupported sample format: {:?}",
+                    sample_format
+                )))
             }
-            _ => return Err(AppError::Audio(format!("Unsupported sample format: {:?}", sample_format))),
         };
 
         // Start the stream
-        stream.play()
+        stream
+            .play()
             .map_err(|e| AppError::Audio(format!("Failed to start stream: {e}")))?;
 
         // Store the stream and recording info
@@ -209,14 +220,22 @@ impl WindowsAudioRecorder {
 
     pub fn stop_recording(&self) -> Result<AudioRecording> {
         // Take the stream to stop it (dropping it stops the stream)
-        let stream = self.current_stream.lock().unwrap().take()
+        let stream = self
+            .current_stream
+            .lock()
+            .unwrap()
+            .take()
             .ok_or_else(|| AppError::Audio("No recording in progress".to_string()))?;
-        
+
         // Explicitly drop the stream to stop recording
         drop(stream);
 
         // Take the recording info
-        let info = self.current_recording.lock().unwrap().take()
+        let info = self
+            .current_recording
+            .lock()
+            .unwrap()
+            .take()
             .ok_or_else(|| AppError::Audio("No recording info found".to_string()))?;
 
         // Get the sample count and recording parameters
@@ -227,7 +246,8 @@ impl WindowsAudioRecorder {
 
         // Close the writer
         if let Some(writer) = self.writer.lock().unwrap().take() {
-            writer.finalize()
+            writer
+                .finalize()
                 .map_err(|e| AppError::Audio(format!("Failed to finalize recording: {e}")))?;
         }
 

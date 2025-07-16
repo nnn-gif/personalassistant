@@ -120,17 +120,15 @@ impl SimpleAudioRecorder {
 
         // Try to get the default input device
         match host.default_input_device() {
-            Some(device) => {
-                match device.name() {
-                    Ok(name) => {
-                        device_names.push(format!("Default Input: {name}"));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to get default device name: {}", e);
-                        device_names.push("Default Input: Unknown".to_string());
-                    }
+            Some(device) => match device.name() {
+                Ok(name) => {
+                    device_names.push(format!("Default Input: {name}"));
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("Failed to get default device name: {}", e);
+                    device_names.push("Default Input: Unknown".to_string());
+                }
+            },
             None => {
                 tracing::warn!("No default input device found");
             }
@@ -171,7 +169,9 @@ impl SimpleAudioRecorder {
 
         // If no devices found at all, return an error
         if device_names.is_empty() {
-            return Err(AppError::Audio("No audio input devices found. Please check your audio settings.".to_string()));
+            return Err(AppError::Audio(
+                "No audio input devices found. Please check your audio settings.".to_string(),
+            ));
         }
 
         Ok(device_names)
@@ -187,7 +187,7 @@ impl SimpleAudioRecorder {
         goal_id: Option<String>,
     ) -> Result<RecordingInfo> {
         let host = cpal::default_host();
-        
+
         tracing::info!("Starting recording with device: {:?}", device_name);
 
         // Get the device
@@ -212,16 +212,21 @@ impl SimpleAudioRecorder {
         let config = match device.default_input_config() {
             Ok(config) => config,
             Err(e) => {
-                tracing::warn!("Failed to get default config: {}, trying supported configs", e);
-                
+                tracing::warn!(
+                    "Failed to get default config: {}, trying supported configs",
+                    e
+                );
+
                 // On Windows, default config might fail, so try supported configs
-                let mut configs = device
-                    .supported_input_configs()
-                    .map_err(|e| AppError::Audio(format!("Failed to get supported configs: {e}")))?;
-                
+                let mut configs = device.supported_input_configs().map_err(|e| {
+                    AppError::Audio(format!("Failed to get supported configs: {e}"))
+                })?;
+
                 configs
                     .next()
-                    .ok_or_else(|| AppError::Audio("No supported input configurations found".to_string()))?
+                    .ok_or_else(|| {
+                        AppError::Audio("No supported input configurations found".to_string())
+                    })?
                     .with_max_sample_rate()
             }
         };
@@ -349,7 +354,7 @@ impl SimpleAudioRecorder {
                 recording.stream = Arc::new(Mutex::new(Some(stream)));
             }
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
             // On other platforms, we use std::mem::forget to keep the stream alive
@@ -369,7 +374,7 @@ impl SimpleAudioRecorder {
         // Set the end time first
         let ended_at = Utc::now();
         *active_recording.ended_at.lock().unwrap() = Some(ended_at);
-        
+
         // On Windows, explicitly stop the stream
         #[cfg(target_os = "windows")]
         {

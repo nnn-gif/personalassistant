@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use crate::error::{AppError, Result};
 use crate::llm::LlmClient;
 use serde::{Deserialize, Serialize};
@@ -215,18 +217,19 @@ impl AudioTranscriber {
 
     // Use available speech recognition methods for real transcription
     async fn transcribe_with_ollama(&self, audio_path: &Path) -> Result<String> {
-        // First try Vosk for real speech recognition (if available)
-        #[cfg(feature = "vosk")]
-        {
-            if let Ok(vosk_result) = self.transcribe_with_vosk(audio_path) {
-                if !vosk_result.text.trim().is_empty() {
-                    // Enhance with Ollama
-                    return self
-                        .enhance_transcription_with_ollama(&vosk_result.text)
-                        .await;
-                }
-            }
-        }
+        // Vosk support has been removed - using whisper model via Ollama instead
+        // The following code block is commented out:
+        // #[cfg(feature = "vosk")]
+        // {
+        //     if let Ok(vosk_result) = self.transcribe_with_vosk(audio_path) {
+        //         if !vosk_result.text.trim().is_empty() {
+        //             // Enhance with Ollama
+        //             return self
+        //                 .enhance_transcription_with_ollama(&vosk_result.text)
+        //                 .await;
+        //         }
+        //     }
+        // }
 
         // Try available transcription methods first
         if let Ok(transcription_result) = self.transcribe_with_available_methods(audio_path).await {
