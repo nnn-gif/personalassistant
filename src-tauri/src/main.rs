@@ -141,6 +141,12 @@ fn main() {
             services::file_manager::get_file_info,
             services::file_manager::index_multiple_documents,
             services::file_manager::get_folder_stats,
+            // Inference commands
+            services::inference::get_inference_config,
+            services::inference::set_inference_provider,
+            services::inference::get_inference_info,
+            services::inference::get_candle_models,
+            services::inference::get_config_path,
         ])
         .run(generate_context!())
         .expect("error while running tauri application");

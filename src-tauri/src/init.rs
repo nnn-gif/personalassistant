@@ -26,8 +26,8 @@ pub struct AppServices {
 impl AppServices {
     pub async fn initialize(app: &App) -> Result<Self> {
         let activity_tracker = Arc::new(Mutex::new(TrackerWrapper::new()));
-        let browser_ai = Arc::new(Mutex::new(BrowserAIAgent::new()));
-        let llm_client = Arc::new(LlmClient::new());
+        let llm_client = Arc::new(LlmClient::new_async().await);
+        let browser_ai = Arc::new(Mutex::new(BrowserAIAgent::with_llm_client(llm_client.clone())));
 
         let audio_recorder = match SimpleAudioRecorder::new() {
             Ok(recorder) => {

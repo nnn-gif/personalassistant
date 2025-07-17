@@ -30,11 +30,15 @@ pub struct BrowserAIAgent {
 
 impl BrowserAIAgent {
     pub fn new() -> Self {
+        Self::with_llm_client(Arc::new(LlmClient::new()))
+    }
+    
+    pub fn with_llm_client(llm_client: Arc<LlmClient>) -> Self {
         Self {
             scraper: ScraperEngine::new(),
             chrome: ChromeController::new(),
             active_tasks: HashMap::new(),
-            llm_client: Arc::new(LlmClient::new()),
+            llm_client,
         }
     }
 

@@ -1,20 +1,88 @@
-use crate::config::Config;
+use crate::config::{Config, InferenceProvider};
 use crate::error::{AppError, Result};
 use crate::models::{Activity, ProductivityInsights, ProductivityScore};
 use chrono::Utc;
 use genai::chat::{ChatMessage, ChatRequest};
 use genai::Client;
+use std::path::PathBuf;
+
+mod candle_backend;
+use candle_backend::CandleBackend;
 
 pub struct LlmClient {
     model_name: String,
+    inference_provider: InferenceProvider,
+    candle_backend: Option<CandleBackend>,
 }
 
 impl LlmClient {
     pub fn new() -> Self {
         let config = Config::get();
+        
+        // For synchronous new(), we'll initialize without Candle
+        // Candle will be initialized later via init_candle_if_needed()
         Self {
             model_name: config.services.ollama_model.clone(),
+            inference_provider: config.services.inference_provider.clone(),
+            candle_backend: None,
         }
+    }
+    
+    pub async fn new_async() -> Self {
+        let config = Config::get();
+        
+        // Initialize Candle backend if needed
+        let candle_backend = if config.services.inference_provider == InferenceProvider::Candle {
+            println!("[LlmClient] Initializing Candle backend...");
+            match CandleBackend::new(
+                &config.services.candle_model_id,
+                &config.services.candle_model_revision,
+                PathBuf::from(&config.services.candle_cache_dir),
+            ).await {
+                Ok(backend) => {
+                    println!("[LlmClient] Candle backend initialized successfully");
+                    Some(backend)
+                }
+                Err(e) => {
+                    eprintln!("[LlmClient] Failed to initialize Candle backend: {}", e);
+                    eprintln!("[LlmClient] Falling back to Ollama");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        
+        Self {
+            model_name: config.services.ollama_model.clone(),
+            inference_provider: config.services.inference_provider.clone(),
+            candle_backend,
+        }
+    }
+    
+    /// Initialize Candle backend if needed (can be called after construction)
+    pub async fn init_candle_if_needed(&mut self) -> Result<()> {
+        let config = Config::get();
+        
+        if config.services.inference_provider == InferenceProvider::Candle && self.candle_backend.is_none() {
+            println!("[LlmClient] Late initialization of Candle backend...");
+            match CandleBackend::new(
+                &config.services.candle_model_id,
+                &config.services.candle_model_revision,
+                PathBuf::from(&config.services.candle_cache_dir),
+            ).await {
+                Ok(backend) => {
+                    println!("[LlmClient] Candle backend initialized successfully");
+                    self.candle_backend = Some(backend);
+                }
+                Err(e) => {
+                    eprintln!("[LlmClient] Failed to initialize Candle backend: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+        
+        Ok(())
     }
 
     pub async fn generate_productivity_insights(
@@ -193,6 +261,17 @@ impl LlmClient {
     }
 
     pub async fn send_request_with_model(&self, prompt: &str, model: &str) -> Result<String> {
+        // Check if we should use Candle
+        if self.inference_provider == InferenceProvider::Candle {
+            if let Some(candle) = &self.candle_backend {
+                println!("[LLM] Using Candle backend for inference");
+                return candle.generate(prompt, 500).await; // Max 500 tokens
+            } else {
+                println!("[LLM] Candle backend not available, falling back to Ollama");
+            }
+        }
+        
+        // Use Ollama
         println!(
             "LLM: Creating client and preparing request for model: {}",
             model
@@ -291,4 +370,23 @@ impl LlmClient {
         serde_json::from_str(cleaned.trim())
             .map_err(|e| AppError::Llm(format!("Failed to parse JSON response: {}", e)))
     }
+    
+    pub async fn get_inference_info(&self) -> InferenceInfo {
+        InferenceInfo {
+            provider: format!("{:?}", self.inference_provider),
+            model_name: self.model_name.clone(),
+            candle_info: if let Some(candle) = &self.candle_backend {
+                Some(candle.get_model_info().await)
+            } else {
+                None
+            },
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct InferenceInfo {
+    pub provider: String,
+    pub model_name: String,
+    pub candle_info: Option<candle_backend::ModelInfo>,
 }

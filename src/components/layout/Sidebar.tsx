@@ -6,7 +6,8 @@ import {
   Brain,
   Mic,
   FileText,
-  MessageCircle
+  MessageCircle,
+  Settings
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -21,6 +22,7 @@ const menuItems = [
   { id: 'activity', label: 'Activity Monitor', icon: Activity },
   { id: 'audio', label: 'Audio Recorder', icon: Mic },
   { id: 'documents', label: 'Document Manager', icon: FileText },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
 export default function Sidebar({ currentView, onViewChange }: SidebarProps) {

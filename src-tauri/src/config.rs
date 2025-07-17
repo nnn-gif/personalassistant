@@ -19,6 +19,16 @@ pub struct ServicesConfig {
     pub qdrant_url: String,
     pub ollama_model: String,
     pub ollama_embedding_model: String,
+    pub inference_provider: InferenceProvider,
+    pub candle_model_id: String,
+    pub candle_model_revision: String,
+    pub candle_cache_dir: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum InferenceProvider {
+    Ollama,
+    Candle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +75,18 @@ impl Default for Config {
                     .unwrap_or_else(|_| "llama3.2:1b".to_string()),
                 ollama_embedding_model: std::env::var("OLLAMA_EMBEDDING_MODEL")
                     .unwrap_or_else(|_| "nomic-embed-text:latest".to_string()),
+                inference_provider: match std::env::var("INFERENCE_PROVIDER").as_deref() {
+                    Ok("candle") => InferenceProvider::Candle,
+                    _ => InferenceProvider::Ollama,
+                },
+                candle_model_id: std::env::var("CANDLE_MODEL_ID")
+                    .unwrap_or_else(|_| "microsoft/phi-2".to_string()),
+                candle_model_revision: std::env::var("CANDLE_MODEL_REVISION")
+                    .unwrap_or_else(|_| "main".to_string()),
+                candle_cache_dir: std::env::var("CANDLE_CACHE_DIR")
+                    .unwrap_or_else(|_| dirs::cache_dir()
+                        .map(|d| d.join("personalassistant").join("models").to_string_lossy().to_string())
+                        .unwrap_or_else(|| "./models".to_string())),
             },
             tracking: TrackingConfig {
                 enabled: std::env::var("TRACKING_ENABLED")
@@ -236,6 +258,26 @@ impl Config {
                     env_config.services.ollama_embedding_model
                 } else {
                     file_config.services.ollama_embedding_model
+                },
+                inference_provider: if std::env::var("INFERENCE_PROVIDER").is_ok() {
+                    env_config.services.inference_provider
+                } else {
+                    file_config.services.inference_provider
+                },
+                candle_model_id: if std::env::var("CANDLE_MODEL_ID").is_ok() {
+                    env_config.services.candle_model_id
+                } else {
+                    file_config.services.candle_model_id
+                },
+                candle_model_revision: if std::env::var("CANDLE_MODEL_REVISION").is_ok() {
+                    env_config.services.candle_model_revision
+                } else {
+                    file_config.services.candle_model_revision
+                },
+                candle_cache_dir: if std::env::var("CANDLE_CACHE_DIR").is_ok() {
+                    env_config.services.candle_cache_dir
+                } else {
+                    file_config.services.candle_cache_dir
                 },
             },
             tracking: TrackingConfig {

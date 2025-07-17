@@ -7,8 +7,9 @@ import ActivityMonitor from './components/ActivityMonitor'
 import AudioRecorder from './components/AudioRecorder'
 import DocumentManager from './components/DocumentManager'
 import UnifiedChat from './components/UnifiedChat'
+import Settings from './components/Settings'
 
-type View = 'dashboard' | 'goals' | 'activity' | 'audio' | 'documents' | 'chat'
+type View = 'dashboard' | 'goals' | 'activity' | 'audio' | 'documents' | 'chat' | 'settings'
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard')
@@ -27,6 +28,8 @@ function App() {
         return <DocumentManager />
       case 'chat':
         return <UnifiedChat />
+      case 'settings':
+        return <Settings />
       default:
         return <Dashboard />
     }
