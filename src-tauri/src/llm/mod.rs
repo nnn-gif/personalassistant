@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::error::{AppError, Result};
 use crate::models::{Activity, ProductivityInsights, ProductivityScore};
 use chrono::Utc;
@@ -10,8 +11,9 @@ pub struct LlmClient {
 
 impl LlmClient {
     pub fn new() -> Self {
+        let config = Config::get();
         Self {
-            model_name: "llama3.2:1b".to_string(), // Default model
+            model_name: config.services.ollama_model.clone(),
         }
     }
 
@@ -225,8 +227,10 @@ impl LlmClient {
     pub async fn get_available_models(&self) -> Result<Vec<String>> {
         println!("LLM: Getting available models from Ollama");
         let client = reqwest::Client::new();
+        let config = Config::get();
+        let url = format!("{}/api/tags", config.services.ollama_url);
 
-        match client.get("http://localhost:11434/api/tags").send().await {
+        match client.get(&url).send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     match response.json::<serde_json::Value>().await {

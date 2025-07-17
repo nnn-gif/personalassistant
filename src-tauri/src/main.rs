@@ -6,6 +6,7 @@
 mod activity_tracking;
 mod audio;
 mod browser_ai;
+mod config;
 mod database;
 mod error;
 mod goals;
@@ -20,12 +21,26 @@ use init::AppServices;
 use tauri::{generate_context, generate_handler};
 
 fn main() {
+    // Load .env file if it exists
+    dotenv::dotenv().ok();
+    
     tracing_subscriber::fmt::init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Load configuration
+            if let Err(e) = config::Config::load(&app.handle()) {
+                tracing::error!("Failed to load configuration: {}", e);
+            }
+            
+            // Validate configuration
+            let cfg = config::Config::get();
+            if let Err(errors) = cfg.validate() {
+                tracing::warn!("Configuration validation errors: {:?}", errors);
+            }
+            
             let services = tauri::async_runtime::block_on(async {
                 match AppServices::initialize(app).await {
                     Ok(services) => services,
@@ -64,6 +79,12 @@ fn main() {
             services::chat::get_chat_messages,
             services::chat::delete_chat_conversation,
             services::chat::update_chat_conversation_title,
+            // Config commands
+            services::config::get_config,
+            services::config::update_config,
+            services::config::get_user_preferences,
+            services::config::update_user_preferences,
+            services::config::reset_preferences,
             // Goal commands
             services::goals::create_goal,
             services::goals::update_goal,

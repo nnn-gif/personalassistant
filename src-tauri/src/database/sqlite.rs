@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::error::{AppError, Result};
 use crate::models::{
     Activity, ChatConversation, ChatConversationSummary, ChatMessage, Goal, SavedResearchTask,
@@ -41,9 +42,10 @@ impl SqliteDatabase {
     }
 
     fn get_db_path() -> Result<PathBuf> {
+        let config = Config::get();
         let data_dir = data_dir()
             .ok_or_else(|| AppError::Database("Could not find data directory".to_string()))?;
-        Ok(data_dir.join("personalassistant").join("database.db"))
+        Ok(data_dir.join("personalassistant").join(&config.database.db_name))
     }
 
     async fn create_tables(&self) -> Result<()> {

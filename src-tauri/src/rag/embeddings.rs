@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::error::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -22,8 +23,9 @@ pub struct EmbeddingModel {
 impl EmbeddingModel {
     pub async fn new() -> Result<Self> {
         let client = Client::new();
-        let model_name = "nomic-embed-text:latest".to_string();
-        let ollama_url = "http://localhost:11434".to_string();
+        let config = Config::get();
+        let model_name = config.services.ollama_embedding_model.clone();
+        let ollama_url = config.services.ollama_url.clone();
 
         // Test connection to Ollama
         let test_url = format!("{ollama_url}/api/tags");

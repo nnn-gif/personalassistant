@@ -1,9 +1,10 @@
+use crate::config::Config;
 use crate::database::SqliteDatabase;
 use crate::error::{AppError, Result};
 use crate::rag::{Document, DocumentChunk, SearchResult};
 use qdrant_client::{
     qdrant::{
-        points_selector::PointsSelectorOneOf, vectors_config::Config, Condition, CreateCollection,
+        points_selector::PointsSelectorOneOf, vectors_config::Config as VectorConfig, Condition, CreateCollection,
         Datatype, DeletePoints, Distance, FieldCondition, Filter, Match, PointStruct,
         PointsSelector, ScrollPoints, SearchParams, SearchPoints, UpsertPoints, Value,
         VectorParams, VectorsConfig,
@@ -15,24 +16,27 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-const COLLECTION_NAME: &str = "document_chunks";
 const EMBEDDING_SIZE: u64 = 768; // Adjust based on your embedding model
 
 pub struct QdrantVectorStore {
     client: Qdrant,
     database: Option<Arc<Mutex<SqliteDatabase>>>,
+    collection_name: String,
 }
 
 impl QdrantVectorStore {
     pub async fn new() -> Result<Self> {
-        // Try to connect to local Qdrant instance
-        let client = Qdrant::from_url("http://localhost:6333")
+        let config = Config::get();
+        
+        // Try to connect to Qdrant instance
+        let client = Qdrant::from_url(&config.services.qdrant_url)
             .build()
             .map_err(|e| AppError::VectorStore(format!("Failed to connect to Qdrant: {e}")))?;
 
         let store = Self {
             client,
             database: None,
+            collection_name: config.rag.collection_name.clone(),
         };
 
         // Initialize collection
@@ -56,12 +60,12 @@ impl QdrantVectorStore {
         let collection_exists = collections
             .collections
             .iter()
-            .any(|c| c.name == COLLECTION_NAME);
+            .any(|c| c.name == self.collection_name);
 
         if !collection_exists {
             // Create collection
             let config = VectorsConfig {
-                config: Some(Config::Params(VectorParams {
+                config: Some(VectorConfig::Params(VectorParams {
                     size: EMBEDDING_SIZE,
                     distance: Distance::Cosine as i32,
                     hnsw_config: None,
@@ -74,7 +78,7 @@ impl QdrantVectorStore {
 
             self.client
                 .create_collection(CreateCollection {
-                    collection_name: COLLECTION_NAME.to_string(),
+                    collection_name: self.collection_name.clone(),
                     vectors_config: Some(config),
                     shard_number: Some(1),
                     replication_factor: Some(1),
@@ -93,9 +97,9 @@ impl QdrantVectorStore {
                 .await
                 .map_err(|e| AppError::VectorStore(format!("Failed to create collection: {e}")))?;
 
-            println!("Created Qdrant collection: {COLLECTION_NAME}");
+            println!("Created Qdrant collection: {}", self.collection_name);
         } else {
-            println!("Qdrant collection {COLLECTION_NAME} already exists");
+            println!("Qdrant collection {} already exists", self.collection_name);
         }
 
         Ok(())
@@ -123,7 +127,7 @@ impl QdrantVectorStore {
                 let points_len = points.len();
                 self.client
                     .upsert_points(UpsertPoints {
-                        collection_name: COLLECTION_NAME.to_string(),
+                        collection_name: self.collection_name.clone(),
                         points,
                         wait: None,
                         ordering: None,
@@ -168,7 +172,7 @@ impl QdrantVectorStore {
         if !points.is_empty() {
             self.client
                 .upsert_points(UpsertPoints {
-                    collection_name: COLLECTION_NAME.to_string(),
+                    collection_name: self.collection_name.clone(),
                     points,
                     wait: None,
                     ordering: None,
@@ -223,7 +227,7 @@ impl QdrantVectorStore {
         let search_result = self
             .client
             .search_points(SearchPoints {
-                collection_name: COLLECTION_NAME.to_string(),
+                collection_name: self.collection_name.clone(),
                 vector: query_embedding.to_vec(),
                 filter,
                 limit: limit as u64,
@@ -323,7 +327,7 @@ impl QdrantVectorStore {
         let scroll_result = self
             .client
             .scroll(ScrollPoints {
-                collection_name: COLLECTION_NAME.to_string(),
+                collection_name: self.collection_name.clone(),
                 filter: Some(filter),
                 offset: None,
                 limit: Some(limit as u32),
@@ -430,7 +434,7 @@ impl QdrantVectorStore {
 
         self.client
             .delete_points(DeletePoints {
-                collection_name: COLLECTION_NAME.to_string(),
+                collection_name: self.collection_name.clone(),
                 points: Some(PointsSelector {
                     points_selector_one_of: Some(PointsSelectorOneOf::Filter(filter)),
                 }),
@@ -488,13 +492,15 @@ impl QdrantVectorStore {
 impl Clone for QdrantVectorStore {
     fn clone(&self) -> Self {
         // Qdrant client doesn't implement Clone, so we create a new connection
-        let client = Qdrant::from_url("http://localhost:6333")
+        let config = Config::get();
+        let client = Qdrant::from_url(&config.services.qdrant_url)
             .build()
             .expect("Failed to clone Qdrant client");
 
         Self {
             client,
             database: self.database.clone(),
+            collection_name: self.collection_name.clone(),
         }
     }
 }

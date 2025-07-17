@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::error::Result;
 
 pub struct TextChunker {
@@ -7,9 +8,10 @@ pub struct TextChunker {
 
 impl TextChunker {
     pub fn new() -> Self {
+        let config = Config::get();
         Self {
-            chunk_size: 1000,
-            overlap: 200,
+            chunk_size: config.rag.chunk_size,
+            overlap: config.rag.chunk_overlap,
         }
     }
 

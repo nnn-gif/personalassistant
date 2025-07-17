@@ -1,0 +1,39 @@
+# Personal Assistant Configuration File
+# Copy this file to your app config directory and rename to config.toml
+# Location: 
+# - macOS: ~/Library/Application Support/com.personalassistant.app/config.toml
+# - Windows: %APPDATA%\com.personalassistant.app\config.toml
+# - Linux: ~/.config/com.personalassistant.app/config.toml
+
+[services]
+# Ollama service configuration
+ollama_url = "http://localhost:11434"
+ollama_model = "llama3.2:1b"
+ollama_embedding_model = "nomic-embed-text:latest"
+
+# Qdrant vector database configuration
+qdrant_url = "http://localhost:6333"
+
+[tracking]
+# Activity tracking configuration
+enabled = true
+tracking_interval_ms = 5000  # 5 seconds
+idle_threshold_ms = 300000   # 5 minutes
+
+[rag]
+# Retrieval-Augmented Generation configuration
+chunk_size = 1000
+chunk_overlap = 200
+use_qdrant = false
+collection_name = "documents"
+
+[audio]
+# Audio recording configuration
+sample_rate = 44100
+channels = 1
+enable_transcription = true
+
+[database]
+# Database configuration
+db_name = "personal_assistant.db"
+enable_migrations = true

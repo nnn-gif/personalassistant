@@ -2,6 +2,7 @@ pub mod activity;
 pub mod audio;
 pub mod browser_ai;
 pub mod chat;
+pub mod config;
 pub mod embeddings;
 pub mod file_manager;
 pub mod goals;
