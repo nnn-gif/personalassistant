@@ -9,3 +9,4 @@ pub mod goals;
 pub mod llm;
 pub mod productivity;
 pub mod rag;
+pub mod streaming_chat;

@@ -5,10 +5,11 @@ import { AnimatePresence } from 'framer-motion'
 import { History } from 'lucide-react'
 import ResearchResults from './research/ResearchResults'
 import ChatHistory, { ChatConversationSummary } from './chat/ChatHistory'
-import MessageList, { ChatMessage, DocumentSource } from './chat/MessageList'
+import StreamingMessageList, { ChatMessage, DocumentSource } from './chat/StreamingMessageList'
 import ModeSelector, { ChatMode, modeConfig } from './chat/ModeSelector'
 import ChatInput from './chat/ChatInput'
 import ResearchProgressComponent, { ResearchProgress } from './chat/ResearchProgress'
+import { useStreamingChat } from '../hooks/useStreamingChat'
 
 interface ChatResponse {
   message: string
@@ -37,6 +38,9 @@ export default function UnifiedChat() {
   const [conversations, setConversations] = useState<ChatConversationSummary[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  // Streaming chat hook
+  const { sendStreamingMessage, streamingMessages, clearStreamingMessage } = useStreamingChat()
 
   useEffect(() => {
     loadGoals()
@@ -214,8 +218,9 @@ export default function UnifiedChat() {
   const sendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return
 
+    const userMessageId = Date.now().toString()
     const userMessage: ChatMessage = {
-      id: Date.now().toString(),
+      id: userMessageId,
       content: inputMessage,
       isUser: true,
       timestamp: new Date(),
@@ -223,6 +228,7 @@ export default function UnifiedChat() {
     }
 
     setMessages(prev => [...prev, userMessage])
+    const messageToSend = inputMessage
     setInputMessage('')
     setIsLoading(true)
 
@@ -230,7 +236,7 @@ export default function UnifiedChat() {
       // Create conversation if needed
       let conversationId = currentConversationId
       if (!conversationId) {
-        conversationId = await createNewConversation(currentMode, inputMessage)
+        conversationId = await createNewConversation(currentMode, messageToSend)
       }
 
       // Save user message
@@ -238,72 +244,102 @@ export default function UnifiedChat() {
         await saveMessage(userMessage, conversationId)
       }
 
-      let response: ChatResponse
-      let researchTaskId: string | undefined
-
-      switch (currentMode) {
-        case 'knowledge':
-          response = await invoke<ChatResponse>('chat_with_documents', {
-            query: inputMessage,
-            goalId: selectedGoal || null,
-            model: selectedModel
-          })
-          break
-
-        case 'research':
-          try {
-            const taskIdUuid = await invoke<string>('start_research', {
-              query: inputMessage
-            })
-            // The backend returns a UUID as a string
-            setCurrentResearchTaskId(taskIdUuid)
-            researchTaskId = taskIdUuid
-            
-            // Research mode returns immediately, we'll get updates via events
-            response = {
-              message: "Research task started. I'll analyze your query and gather information from the web...",
-              sources: [],
-              context_used: false
-            }
-          } catch (error) {
-            console.error('Research failed:', error)
-            response = {
-              message: `Failed to start research: ${error}`,
-              sources: [],
-              context_used: false
-            }
-          }
-          break
-
-        default:
-          const generalMessage = await invoke<string>('general_chat', {
-            message: inputMessage,
-            model: selectedModel
-          })
-          response = {
-            message: generalMessage,
-            sources: [],
-            context_used: false
-          }
-      }
-
+      // Create assistant message placeholder
+      const assistantMessageId = Date.now().toString() + '-assistant'
       const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        content: response.message,
+        id: assistantMessageId,
+        content: '',
         isUser: false,
         timestamp: new Date(),
-        mode: currentMode,
-        sources: response.sources,
-        contextUsed: response.context_used,
-        researchTaskId
+        mode: currentMode
       }
-
       setMessages(prev => [...prev, assistantMessage])
-      
-      // Save assistant message
-      if (conversationId) {
-        await saveMessage(assistantMessage, conversationId)
-        await loadConversations() // Refresh to update last message time
+
+      if (currentMode === 'research') {
+        // Research mode - start research task
+        try {
+          const taskIdUuid = await invoke<string>('start_research', {
+            query: messageToSend
+          })
+          setCurrentResearchTaskId(taskIdUuid)
+          
+          // Update message with research started notification
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantMessageId 
+              ? { ...msg, content: "Research task started. I'll analyze your query and gather information from the web...", researchTaskId: taskIdUuid }
+              : msg
+          ))
+        } catch (error) {
+          console.error('Failed to start research:', error)
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantMessageId 
+              ? { ...msg, content: `Failed to start research: ${error}` }
+              : msg
+          ))
+        }
+      } else {
+        // Use streaming for general and knowledge modes
+        await sendStreamingMessage(
+          conversationId!,
+          assistantMessageId,
+          messageToSend,
+          currentMode === 'knowledge' ? 'knowledge' : 'general',
+          {
+            model: selectedModel,
+            goalId: selectedGoal || undefined,
+            limit: 5
+          }
+        )
+
+        // Wait for streaming to complete
+        const checkComplete = setInterval(() => {
+          const streamingMsg = streamingMessages.get(assistantMessageId)
+          if (streamingMsg && streamingMsg.isComplete) {
+            clearInterval(checkComplete)
+            
+            // Update message with final content
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessageId 
+                ? { 
+                    ...msg, 
+                    content: streamingMsg.content || msg.content,
+                    sources: streamingMsg.sources?.map(s => ({
+                      document_id: s.document_id,
+                      content: s.preview,
+                      score: s.score
+                    })),
+                    contextUsed: !!streamingMsg.sources?.length
+                  }
+                : msg
+            ))
+            
+            // Save assistant message
+            if (conversationId && streamingMsg.content) {
+              saveMessage({
+                ...assistantMessage,
+                content: streamingMsg.content,
+                sources: streamingMsg.sources?.map(s => ({
+                  document_id: s.document_id,
+                  content: s.preview,
+                  score: s.score
+                })),
+                contextUsed: !!streamingMsg.sources?.length
+              }, conversationId)
+            }
+            
+            // Clear streaming message
+            clearStreamingMessage(assistantMessageId)
+            setIsLoading(false)
+          }
+        }, 100)
+        
+        // Timeout after 2 minutes
+        setTimeout(() => {
+          clearInterval(checkComplete)
+          setIsLoading(false)
+        }, 120000)
+        
+        return // Exit early for streaming
       }
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -393,7 +429,11 @@ export default function UnifiedChat() {
         )}
 
         {/* Messages */}
-        <MessageList messages={messages} messagesEndRef={messagesEndRef} />
+        <StreamingMessageList 
+          messages={messages} 
+          streamingMessages={streamingMessages}
+          messagesEndRef={messagesEndRef} 
+        />
 
         {/* Research Results */}
         <AnimatePresence>

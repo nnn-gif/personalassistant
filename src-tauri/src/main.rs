@@ -133,6 +133,9 @@ fn main() {
             services::rag::inspect_rag_database,
             services::rag::cleanup_corrupted_documents,
             services::rag::clear_vector_database,
+            // Streaming chat commands
+            services::streaming_chat::stream_general_chat,
+            services::streaming_chat::stream_document_chat,
             // File manager commands
             services::file_manager::scan_folder_for_documents,
             services::file_manager::get_file_info,
