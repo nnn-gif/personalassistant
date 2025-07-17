@@ -1,13 +1,21 @@
+mod activity_aggregator;
 mod app_watcher;
+mod batch_writer;
 mod history;
 mod input_monitor;
+mod optimized_tracker;
 mod project_detector;
 mod system_monitor;
 mod tracker;
+mod tracker_wrapper;
 
+pub use activity_aggregator::{ActivityAggregator, ActivityCache, CacheStats};
 pub use app_watcher::AppWatcher;
+pub use batch_writer::{BatchWriter, SharedBatchWriter};
 pub use history::ActivityHistory;
 pub use input_monitor::InputMonitor;
+pub use optimized_tracker::{OptimizedActivityTracker, TrackerStats};
 pub use project_detector::ProjectDetector;
 pub use system_monitor::SystemMonitor;
 pub use tracker::ActivityTracker;
+pub use tracker_wrapper::TrackerWrapper;

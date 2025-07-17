@@ -1,4 +1,4 @@
-use crate::activity_tracking::ActivityTracker;
+use crate::activity_tracking::TrackerWrapper;
 use crate::error::Result;
 use crate::models::AppCategory;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ pub struct AppUsageStats {
 
 #[tauri::command]
 pub async fn get_productivity_trend(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
+    tracker: State<'_, Arc<Mutex<TrackerWrapper>>>,
     hours: Option<i64>,
 ) -> Result<Vec<ProductivityTrend>> {
     let tracker = tracker.lock().await;
@@ -34,15 +34,15 @@ pub async fn get_productivity_trend(
 
     // Get productivity stats for each hour
     for h in 0..hours {
-        let (productive_seconds, total_seconds) = tracker.get_productivity_stats(h + 1);
+        let (productive_seconds, total_seconds) = tracker.get_productivity_stats((h + 1) as u32);
         let prev_productive = if h > 0 {
-            let (p, _) = tracker.get_productivity_stats(h);
+            let (p, _) = tracker.get_productivity_stats(h as u32);
             p
         } else {
             0
         };
         let prev_total = if h > 0 {
-            let (_, t) = tracker.get_productivity_stats(h);
+            let (_, t) = tracker.get_productivity_stats(h as u32);
             t
         } else {
             0
@@ -71,20 +71,26 @@ pub async fn get_productivity_trend(
 
 #[tauri::command]
 pub async fn get_app_usage_stats(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
+    tracker: State<'_, Arc<Mutex<TrackerWrapper>>>,
     hours: Option<i64>,
 ) -> Result<Vec<AppUsageStats>> {
     let tracker = tracker.lock().await;
-    let hours = hours.unwrap_or(24);
+    let _hours = hours.unwrap_or(24);
 
-    let history = tracker.get_history();
-    let stats = history.get_app_usage_stats(hours);
+    // TrackerWrapper doesn't expose history directly, so use recent activities
+    let recent_activities = tracker.get_recent_activities(1000);
+    let mut app_time: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    
+    for activity in &recent_activities {
+        *app_time.entry(activity.app_usage.app_name.clone()).or_insert(0) += activity.duration_seconds as u32;
+    }
+    
+    let stats = app_time;
 
     let mut app_stats = Vec::new();
 
     for (app_name, seconds) in stats {
         // Get category from recent activity
-        let recent_activities = tracker.get_recent_activities(100);
         let category = recent_activities
             .iter()
             .find(|a| a.app_usage.app_name == app_name)
@@ -109,7 +115,7 @@ pub async fn get_app_usage_stats(
 
 #[tauri::command]
 pub async fn get_current_productivity_score(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
+    tracker: State<'_, Arc<Mutex<TrackerWrapper>>>,
 ) -> Result<f32> {
     let tracker = tracker.lock().await;
     let (productive, total) = tracker.get_productivity_stats(1); // Last hour

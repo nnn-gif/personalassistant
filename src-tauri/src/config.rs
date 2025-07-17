@@ -26,6 +26,10 @@ pub struct TrackingConfig {
     pub enabled: bool,
     pub tracking_interval_ms: u64,
     pub idle_threshold_ms: u64,
+    pub use_optimized_tracker: bool,
+    pub aggregation_enabled: bool,
+    pub cache_size: usize,
+    pub batch_size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +79,22 @@ impl Default for Config {
                     .unwrap_or_else(|_| "300000".to_string())
                     .parse()
                     .unwrap_or(300000),
+                use_optimized_tracker: std::env::var("USE_OPTIMIZED_TRACKER")
+                    .unwrap_or_else(|_| "true".to_string())
+                    .parse()
+                    .unwrap_or(true),
+                aggregation_enabled: std::env::var("AGGREGATION_ENABLED")
+                    .unwrap_or_else(|_| "true".to_string())
+                    .parse()
+                    .unwrap_or(true),
+                cache_size: std::env::var("ACTIVITY_CACHE_SIZE")
+                    .unwrap_or_else(|_| "1000".to_string())
+                    .parse()
+                    .unwrap_or(1000),
+                batch_size: std::env::var("ACTIVITY_BATCH_SIZE")
+                    .unwrap_or_else(|_| "20".to_string())
+                    .parse()
+                    .unwrap_or(20),
             },
             rag: RagConfig {
                 chunk_size: std::env::var("RAG_CHUNK_SIZE")
@@ -233,6 +253,26 @@ impl Config {
                     env_config.tracking.idle_threshold_ms
                 } else {
                     file_config.tracking.idle_threshold_ms
+                },
+                use_optimized_tracker: if std::env::var("USE_OPTIMIZED_TRACKER").is_ok() {
+                    env_config.tracking.use_optimized_tracker
+                } else {
+                    file_config.tracking.use_optimized_tracker
+                },
+                aggregation_enabled: if std::env::var("AGGREGATION_ENABLED").is_ok() {
+                    env_config.tracking.aggregation_enabled
+                } else {
+                    file_config.tracking.aggregation_enabled
+                },
+                cache_size: if std::env::var("ACTIVITY_CACHE_SIZE").is_ok() {
+                    env_config.tracking.cache_size
+                } else {
+                    file_config.tracking.cache_size
+                },
+                batch_size: if std::env::var("ACTIVITY_BATCH_SIZE").is_ok() {
+                    env_config.tracking.batch_size
+                } else {
+                    file_config.tracking.batch_size
                 },
             },
             rag: RagConfig {

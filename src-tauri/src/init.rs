@@ -1,5 +1,5 @@
 use crate::{
-    activity_tracking::ActivityTracker,
+    activity_tracking::{ActivityTracker, TrackerWrapper},
     audio::SimpleAudioRecorder,
     browser_ai::BrowserAIAgent,
     database::SqliteDatabase,
@@ -14,7 +14,7 @@ use tauri::{App, Manager};
 use tokio::sync::Mutex;
 
 pub struct AppServices {
-    pub activity_tracker: Arc<Mutex<ActivityTracker>>,
+    pub activity_tracker: Arc<Mutex<TrackerWrapper>>,
     pub browser_ai: Arc<Mutex<BrowserAIAgent>>,
     pub llm_client: Arc<LlmClient>,
     pub audio_recorder: Option<Arc<SimpleAudioRecorder>>,
@@ -25,7 +25,7 @@ pub struct AppServices {
 
 impl AppServices {
     pub async fn initialize(app: &App) -> Result<Self> {
-        let activity_tracker = Arc::new(Mutex::new(ActivityTracker::new()));
+        let activity_tracker = Arc::new(Mutex::new(TrackerWrapper::new()));
         let browser_ai = Arc::new(Mutex::new(BrowserAIAgent::new()));
         let llm_client = Arc::new(LlmClient::new());
 

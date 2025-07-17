@@ -1,4 +1,4 @@
-use crate::activity_tracking::ActivityTracker;
+use crate::activity_tracking::TrackerWrapper;
 use crate::database::SqliteDatabase;
 use crate::error::Result;
 use crate::models::Activity;
@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 #[tauri::command]
 pub async fn get_current_activity(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
+    tracker: State<'_, Arc<Mutex<TrackerWrapper>>>,
 ) -> Result<Option<Activity>> {
     let tracker = tracker.lock().await;
     Ok(tracker.get_current_activity().cloned())
@@ -18,7 +18,7 @@ pub async fn get_current_activity(
 
 #[tauri::command]
 pub async fn get_activity_history(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
+    tracker: State<'_, Arc<Mutex<TrackerWrapper>>>,
     limit: Option<usize>,
 ) -> Result<Vec<Activity>> {
     let tracker = tracker.lock().await;
@@ -28,20 +28,20 @@ pub async fn get_activity_history(
 }
 
 #[tauri::command]
-pub async fn start_tracking(tracker: State<'_, Arc<Mutex<ActivityTracker>>>) -> Result<()> {
+pub async fn start_tracking(tracker: State<'_, Arc<Mutex<TrackerWrapper>>>) -> Result<()> {
     let mut tracker = tracker.lock().await;
     tracker.start_tracking().await
 }
 
 #[tauri::command]
-pub async fn stop_tracking(tracker: State<'_, Arc<Mutex<ActivityTracker>>>) -> Result<()> {
+pub async fn stop_tracking(tracker: State<'_, Arc<Mutex<TrackerWrapper>>>) -> Result<()> {
     let mut tracker = tracker.lock().await;
     tracker.stop_tracking().await
 }
 
 #[tauri::command]
 pub async fn get_tracking_stats(
-    tracker: State<'_, Arc<Mutex<ActivityTracker>>>,
+    tracker: State<'_, Arc<Mutex<TrackerWrapper>>>,
 ) -> Result<TrackingStats> {
     let tracker = tracker.lock().await;
     let recent_activities = tracker.get_recent_activities(100);
@@ -89,8 +89,11 @@ pub struct HourlyBreakdown {
 }
 
 #[tauri::command]
-pub async fn get_today_stats(db: State<'_, Arc<Mutex<SqliteDatabase>>>) -> Result<TodayStats> {
-    let db = db.lock().await;
+pub async fn get_today_stats(
+    db: State<'_, Arc<Mutex<SqliteDatabase>>>,
+    tracker: State<'_, Arc<Mutex<TrackerWrapper>>>,
+) -> Result<TodayStats> {
+    let db_arc = db.inner().clone();
 
     // Get today's activities
     let today_start = Utc::now()
@@ -105,7 +108,10 @@ pub async fn get_today_stats(db: State<'_, Arc<Mutex<SqliteDatabase>>>) -> Resul
     println!("[get_today_stats] Current time: {}", now.format("%Y-%m-%d %H:%M:%S"));
 
     let start_time = std::time::Instant::now();
-    let activities = db.get_activities_by_date_range(today_start, now).await?;
+    
+    // Use tracker's optimized method which includes caching
+    let mut tracker_lock = tracker.lock().await;
+    let activities = tracker_lock.get_activities_by_date_range(today_start, now, &db_arc).await?;
     let fetch_duration = start_time.elapsed();
     
     println!("[get_today_stats] Fetched {} activities in {:?}", activities.len(), fetch_duration);

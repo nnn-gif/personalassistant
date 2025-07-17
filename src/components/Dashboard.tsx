@@ -70,6 +70,17 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboardData()
+    
+    // Fallback to prevent infinite loading
+    const fallbackTimer = setTimeout(() => {
+      if (hoursLoading) {
+        console.error('[Dashboard] Fallback triggered - setting loading to false after 10 seconds')
+        setHoursLoading(false)
+        setTodayHours(0)
+      }
+    }, 10000)
+    
+    return () => clearTimeout(fallbackTimer)
   }, [])
 
   const loadDashboardData = async () => {
@@ -127,7 +138,15 @@ export default function Dashboard() {
         console.log('[Dashboard] Fetching today stats...')
         setHoursLoading(true)
         
-        const todayStats = await invoke<ProductivityStats>('get_today_stats')
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout fetching today stats')), 5000)
+        )
+        
+        const todayStats = await Promise.race([
+          invoke<ProductivityStats>('get_today_stats'),
+          timeoutPromise
+        ])
         console.log('[Dashboard] Today stats received:', JSON.stringify(todayStats, null, 2))
         
         if (!todayStats) {
@@ -154,9 +173,16 @@ export default function Dashboard() {
       } catch (error) {
         console.error('[Dashboard] Failed to get today stats:', error)
         console.error('[Dashboard] Error details:', error instanceof Error ? error.message : 'Unknown error')
+        
+        // Show error message to user
+        if (error instanceof Error && error.message.includes('Timeout')) {
+          console.error('[Dashboard] Request timed out after 5 seconds')
+        }
+        
         setTodayHours(0)
       } finally {
         setHoursLoading(false)
+        console.log('[Dashboard] Hours loading completed, loading state set to false')
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
