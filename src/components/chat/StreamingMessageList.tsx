@@ -51,7 +51,6 @@ const StreamingMessageContent: React.FC<{
         <div className="mb-3">
           <ThinkingIndicator
             step={streamingData.thinkingStep}
-            progress={streamingData.thinkingProgress}
             isVisible={true}
             thinkingContent={streamingData.metadata?.thinkingContent}
           />

@@ -108,14 +108,14 @@ impl TrackerWrapper {
     pub fn get_current_activity(&self) -> Option<&Activity> {
         match self {
             TrackerWrapper::Regular(tracker) => tracker.get_current_activity(),
-            TrackerWrapper::Optimized(_) => None, // Optimized tracker doesn't expose current activity
+            TrackerWrapper::Optimized(tracker) => tracker.get_current_activity(),
         }
     }
 
     pub fn get_recent_activities(&self, limit: usize) -> Vec<Activity> {
         match self {
             TrackerWrapper::Regular(tracker) => tracker.get_recent_activities(limit),
-            TrackerWrapper::Optimized(_) => Vec::new(), // Would need to fetch from cache/db
+            TrackerWrapper::Optimized(tracker) => tracker.get_recent_activities(limit),
         }
     }
 

@@ -119,6 +119,11 @@ impl ActivityCache {
             .cloned()
             .collect()
     }
+    
+    /// Get all activities from cache (most recent first)
+    pub fn get_all_activities(&self) -> Vec<Activity> {
+        self.activities.iter().rev().cloned().collect()
+    }
 
     /// Check if a time range is fully covered by the cache
     pub fn covers_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> bool {

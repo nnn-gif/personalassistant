@@ -1,28 +1,16 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, Search, FileText, Sparkles } from 'lucide-react';
 
 interface ThinkingIndicatorProps {
   step?: string;
-  progress?: number;
   isVisible: boolean;
   thinkingContent?: string;
 }
 
 export const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({
-  step = 'Thinking',
-  progress,
   isVisible,
   thinkingContent,
 }) => {
-  const getIcon = () => {
-    if (step.toLowerCase().includes('search')) return Search;
-    if (step.toLowerCase().includes('document')) return FileText;
-    if (step.toLowerCase().includes('generat')) return Sparkles;
-    return Brain;
-  };
-
-  const Icon = getIcon();
 
   return (
     <AnimatePresence>

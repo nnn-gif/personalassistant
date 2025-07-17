@@ -5,17 +5,12 @@ import { AnimatePresence } from 'framer-motion'
 import { History } from 'lucide-react'
 import ResearchResults from './research/ResearchResults'
 import ChatHistory, { ChatConversationSummary } from './chat/ChatHistory'
-import StreamingMessageList, { ChatMessage, DocumentSource } from './chat/StreamingMessageList'
+import StreamingMessageList, { ChatMessage } from './chat/StreamingMessageList'
 import ModeSelector, { ChatMode, modeConfig } from './chat/ModeSelector'
 import ChatInput from './chat/ChatInput'
 import ResearchProgressComponent, { ResearchProgress } from './chat/ResearchProgress'
 import { useStreamingChat } from '../hooks/useStreamingChat'
 
-interface ChatResponse {
-  message: string
-  sources: DocumentSource[]
-  context_used: boolean
-}
 
 interface Goal {
   id: string

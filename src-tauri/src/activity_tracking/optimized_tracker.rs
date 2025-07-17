@@ -19,6 +19,7 @@ pub struct OptimizedActivityTracker {
     cache: ActivityCache,
     batch_writer: Option<SharedBatchWriter>,
     is_tracking: bool,
+    current_activity: Option<Activity>,
     stats: TrackerStats,
 }
 
@@ -42,6 +43,7 @@ impl OptimizedActivityTracker {
             cache: ActivityCache::new(1000), // Cache last 1000 activities (~1.4 hours)
             batch_writer: None,
             is_tracking: true,
+            current_activity: None,
             stats: TrackerStats::default(),
         }
     }
@@ -91,6 +93,8 @@ impl OptimizedActivityTracker {
 
         // Collect current activity data
         let app_usage = self.app_watcher.get_current_app()?;
+        println!("[OptimizedTracker] Collected app: {} - {}", app_usage.app_name, app_usage.window_title);
+        
         let project_context = self
             .project_detector
             .detect_project(&app_usage.app_name, &app_usage.window_title)?;
@@ -123,16 +127,25 @@ impl OptimizedActivityTracker {
         };
 
         self.stats.activities_collected += 1;
+        println!("[OptimizedTracker] Activity collected #{}, cache size before: {}", 
+            self.stats.activities_collected, 
+            self.cache.stats().activity_count);
+
+        // Store as current activity
+        self.current_activity = Some(activity.clone());
 
         // Process through aggregator
         if let Some(completed_activity) = self.aggregator.process_activity(activity.clone()) {
             // Aggregation completed, save the aggregated activity
             self.stats.activities_aggregated += 1;
+            println!("[OptimizedTracker] Activity aggregated, saving to batch writer");
             self.save_activity(completed_activity).await;
         }
 
         // Always add to cache for real-time queries
         self.cache.add_activity(activity);
+        println!("[OptimizedTracker] Activity added to cache, cache size now: {}", 
+            self.cache.stats().activity_count);
 
         Ok(())
     }
@@ -186,6 +199,32 @@ impl OptimizedActivityTracker {
             
             Ok(activities)
         }
+    }
+
+    /// Get current activity
+    pub fn get_current_activity(&self) -> Option<&Activity> {
+        self.current_activity.as_ref()
+    }
+
+    /// Get recent activities from cache
+    pub fn get_recent_activities(&self, limit: usize) -> Vec<Activity> {
+        println!("[OptimizedTracker] get_recent_activities called with limit: {}", limit);
+        
+        let cache_activities = self.cache.get_activities_in_range(
+            Utc::now() - chrono::Duration::hours(24), // Last 24 hours
+            Utc::now()
+        );
+        
+        println!("[OptimizedTracker] Cache returned {} activities", cache_activities.len());
+        
+        // Return up to 'limit' activities, most recent first
+        let result: Vec<Activity> = cache_activities.into_iter()
+            .rev() // Reverse to get most recent first
+            .take(limit)
+            .collect();
+            
+        println!("[OptimizedTracker] Returning {} recent activities", result.len());
+        result
     }
 
     /// Get current statistics

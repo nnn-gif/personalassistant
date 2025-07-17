@@ -35,8 +35,11 @@ impl AppWatcher {
 
         if output.status.success() {
             let result = String::from_utf8_lossy(&output.stdout);
-            let parts: Vec<&str> = result.trim().split('|').collect();
+            let trimmed = result.trim();
+            println!("[AppWatcher] AppleScript output: {}", trimmed);
+            let parts: Vec<&str> = trimmed.split('|').collect();
 
+            println!("[AppWatcher] Parts count: {}", parts.len());
             if parts.len() >= 3 {
                 let app_name = parts[0].to_string();
                 let bundle_id = parts[1].to_string();
@@ -74,9 +77,14 @@ impl AppWatcher {
                     terminal_info,
                 });
             }
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            println!("[AppWatcher] AppleScript failed with stderr: {}", stderr);
+            println!("[AppWatcher] AppleScript status: {:?}", output.status);
         }
 
         // Fallback
+        println!("[AppWatcher] Using fallback Unknown app");
         Ok(AppUsage {
             app_name: "Unknown".to_string(),
             bundle_id: "unknown".to_string(),
