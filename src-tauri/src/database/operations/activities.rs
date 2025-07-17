@@ -61,6 +61,13 @@ pub async fn get_activities_by_date_range(
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) -> Result<Vec<Activity>> {
+    println!("[get_activities_by_date_range] Starting query for date range");
+    println!("[get_activities_by_date_range] Start date: {}", start.to_rfc3339());
+    println!("[get_activities_by_date_range] End date: {}", end.to_rfc3339());
+    println!("[get_activities_by_date_range] Time range: {} hours", (end - start).num_hours());
+    
+    let query_start = std::time::Instant::now();
+    
     let rows = sqlx::query(
         "SELECT id, timestamp, duration_seconds, app_name, window_title, category, is_productive, keystrokes, mouse_clicks, mouse_distance_pixels, goal_id, project_name FROM activities WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC"
     )
@@ -68,11 +75,51 @@ pub async fn get_activities_by_date_range(
     .bind(end.to_rfc3339())
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::Database(format!("Failed to fetch activities: {}", e)))?;
+    .map_err(|e| {
+        eprintln!("[get_activities_by_date_range] Database query failed: {}", e);
+        AppError::Database(format!("Failed to fetch activities: {}", e))
+    })?;
+
+    let query_duration = query_start.elapsed();
+    println!("[get_activities_by_date_range] Query executed in {:?}", query_duration);
+    println!("[get_activities_by_date_range] Found {} rows", rows.len());
 
     let mut activities = Vec::new();
-    for row in rows {
-        activities.push(activity_from_row(&row)?);
+    let parse_start = std::time::Instant::now();
+    
+    for (index, row) in rows.iter().enumerate() {
+        match activity_from_row(row) {
+            Ok(activity) => {
+                if index < 5 {
+                    println!(
+                        "[get_activities_by_date_range] Sample activity {}: {} - {} ({}s)",
+                        index + 1,
+                        activity.app_usage.app_name,
+                        activity.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                        activity.duration_seconds
+                    );
+                }
+                activities.push(activity);
+            }
+            Err(e) => {
+                eprintln!("[get_activities_by_date_range] Failed to parse row {}: {}", index, e);
+                return Err(e);
+            }
+        }
+    }
+
+    let parse_duration = parse_start.elapsed();
+    println!("[get_activities_by_date_range] Parsed {} activities in {:?}", activities.len(), parse_duration);
+    
+    // Summary statistics
+    if !activities.is_empty() {
+        let total_duration: u32 = activities.iter().map(|a| a.duration_seconds as u32).sum();
+        let productive_count = activities.iter().filter(|a| a.app_usage.is_productive).count();
+        println!("[get_activities_by_date_range] Total duration: {} seconds ({:.2} hours)", 
+                 total_duration, total_duration as f64 / 3600.0);
+        println!("[get_activities_by_date_range] Productive activities: {}/{} ({:.1}%)", 
+                 productive_count, activities.len(), 
+                 (productive_count as f64 / activities.len() as f64) * 100.0);
     }
 
     Ok(activities)

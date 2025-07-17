@@ -315,7 +315,22 @@ impl SqliteDatabase {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Activity>> {
-        operations::activities::get_activities_by_date_range(&self.pool, start, end).await
+        println!("[SqliteDatabase::get_activities_by_date_range] Called with:");
+        println!("  Start: {} ({})", start.to_rfc3339(), start.format("%Y-%m-%d %H:%M:%S"));
+        println!("  End: {} ({})", end.to_rfc3339(), end.format("%Y-%m-%d %H:%M:%S"));
+        
+        let result = operations::activities::get_activities_by_date_range(&self.pool, start, end).await;
+        
+        match &result {
+            Ok(activities) => {
+                println!("[SqliteDatabase::get_activities_by_date_range] Successfully retrieved {} activities", activities.len());
+            }
+            Err(e) => {
+                eprintln!("[SqliteDatabase::get_activities_by_date_range] Failed to get activities: {}", e);
+            }
+        }
+        
+        result
     }
 
     // Research operations

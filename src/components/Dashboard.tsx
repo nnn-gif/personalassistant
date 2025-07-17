@@ -19,9 +19,10 @@ interface StatCardProps {
   value: string | number
   icon: React.ElementType
   color: string
+  isLoading?: boolean
 }
 
-function StatCard({ title, value, icon: Icon, color }: StatCardProps) {
+function StatCard({ title, value, icon: Icon, color, isLoading = false }: StatCardProps) {
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
@@ -30,7 +31,27 @@ function StatCard({ title, value, icon: Icon, color }: StatCardProps) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-gray-400 text-sm">{title}</p>
-          <p className="text-2xl font-bold mt-1">{value}</p>
+          {isLoading ? (
+            <div className="mt-1 flex items-center">
+              <motion.div
+                className="w-2 h-2 bg-primary rounded-full"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              />
+              <motion.div
+                className="w-2 h-2 bg-primary rounded-full ml-1"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: 0.3 }}
+              />
+              <motion.div
+                className="w-2 h-2 bg-primary rounded-full ml-1"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: 0.6 }}
+              />
+            </div>
+          ) : (
+            <p className="text-2xl font-bold mt-1">{value}</p>
+          )}
         </div>
         <div className={`p-3 rounded-lg ${color}`}>
           <Icon className="w-6 h-6" />
@@ -42,8 +63,9 @@ function StatCard({ title, value, icon: Icon, color }: StatCardProps) {
 
 export default function Dashboard() {
   const [productivityScore, setProductivityScore] = useState<ProductivityScore | null>(null)
-  const [activeGoals, setActiveGoals] = useState(0)
+  const [activeGoalName, setActiveGoalName] = useState<string>('')
   const [todayHours, setTodayHours] = useState(0)
+  const [hoursLoading, setHoursLoading] = useState(true)
   const [insights, setInsights] = useState<string[]>([])
 
   useEffect(() => {
@@ -79,10 +101,15 @@ export default function Dashboard() {
       try {
         const goals = await invoke<Goal[]>('get_goals')
         console.log('Goals:', goals)
-        setActiveGoals(goals.filter(g => g.is_active).length)
+        const activeGoal = goals.find(g => g.is_active)
+        if (activeGoal) {
+          setActiveGoalName(activeGoal.name)
+        } else {
+          setActiveGoalName('No active goal')
+        }
       } catch (error) {
         console.error('Failed to get goals:', error)
-        setActiveGoals(0)
+        setActiveGoalName('No goals')
       }
 
       // Get productivity insights
@@ -97,14 +124,39 @@ export default function Dashboard() {
 
       // Get today's hours from database
       try {
+        console.log('[Dashboard] Fetching today stats...')
+        setHoursLoading(true)
+        
         const todayStats = await invoke<ProductivityStats>('get_today_stats')
-        console.log('Today stats:', todayStats)
-        const hours = todayStats.total_tracked_seconds / 3600
-        setTodayHours(hours)
-        console.log('Today\'s hours:', hours)
+        console.log('[Dashboard] Today stats received:', JSON.stringify(todayStats, null, 2))
+        
+        if (!todayStats) {
+          console.error('[Dashboard] todayStats is null or undefined')
+          setTodayHours(0)
+        } else if (typeof todayStats.total_tracked_seconds !== 'number') {
+          console.error('[Dashboard] Invalid total_tracked_seconds:', todayStats.total_tracked_seconds, 'type:', typeof todayStats.total_tracked_seconds)
+          console.error('[Dashboard] Full todayStats object:', todayStats)
+          setTodayHours(0)
+        } else {
+          const hours = todayStats.total_tracked_seconds / 3600
+          setTodayHours(hours)
+          console.log(`[Dashboard] Successfully calculated hours: ${hours.toFixed(2)} hours (${todayStats.total_tracked_seconds} seconds)`)
+          
+          // Log additional stats
+          console.log(`[Dashboard] Productivity score: ${todayStats.productivity_score}%`)
+          console.log(`[Dashboard] Active time: ${todayStats.active_time_seconds} seconds`)
+          console.log(`[Dashboard] Top apps:`, todayStats.top_apps)
+          
+          if (hours === 0 || isNaN(hours)) {
+            console.warn(`[Dashboard] Today's Hours has ${hours === 0 ? '0' : 'nan'}`)
+          }
+        }
       } catch (error) {
-        console.error('Failed to get today stats:', error)
+        console.error('[Dashboard] Failed to get today stats:', error)
+        console.error('[Dashboard] Error details:', error instanceof Error ? error.message : 'Unknown error')
         setTodayHours(0)
+      } finally {
+        setHoursLoading(false)
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
@@ -132,16 +184,17 @@ export default function Dashboard() {
           color="bg-secondary/20 text-secondary"
         />
         <StatCard
-          title="Active Goals"
-          value={activeGoals}
+          title="Current Goal"
+          value={activeGoalName}
           icon={Target}
           color="bg-success/20 text-success"
         />
         <StatCard
           title="Today's Hours"
-          value={formatDecimalHours(todayHours)}
+          value={hoursLoading ? '' : formatDecimalHours(todayHours)}
           icon={Clock}
           color="bg-warning/20 text-warning"
+          isLoading={hoursLoading}
         />
       </div>
 
