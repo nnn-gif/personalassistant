@@ -49,12 +49,12 @@ zip = "2.1"
 walkdir = "2.4"
 mime_guess = "2.0"
 toml = "0.8"
-# Local inference with Candle (simplified for now)
-# candle-core = "0.8"
-# candle-nn = "0.8"
-# candle-transformers = "0.8"
-# tokenizers = "0.20"
-# hf-hub = { version = "0.3", features = ["tokio"] }
+# Local inference with Candle
+candle-core = "0.8"
+candle-nn = "0.8"
+candle-transformers = "0.8"
+tokenizers = { version = "0.20", features = ["http"] }
+hf-hub = { version = "0.3", features = ["tokio"] }
 # Simplified approach - use system tools and enhanced Ollama
 # vosk = "0.3.1"  # Commented out due to native library dependencies
 

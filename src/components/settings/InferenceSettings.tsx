@@ -25,6 +25,8 @@ interface InferenceInfo {
     model_type: string
     device: string
     cache_dir: string
+    loaded: boolean
+    tokenizer_loaded: boolean
   }
 }
 
@@ -122,6 +124,28 @@ export default function InferenceSettings() {
             <div className="mt-2 text-xs text-gray-500">
               <p>Device: {inferenceInfo.candle_info.device}</p>
               <p>Cache: {inferenceInfo.candle_info.cache_dir}</p>
+              <p className="mt-1 flex items-center space-x-2">
+                <span>Model Status:</span>
+                {inferenceInfo.candle_info.loaded ? (
+                  <span className="text-green-400 flex items-center">
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    Loaded
+                  </span>
+                ) : (
+                  <span className="text-yellow-400">Not loaded</span>
+                )}
+              </p>
+              <p className="flex items-center space-x-2">
+                <span>Tokenizer:</span>
+                {inferenceInfo.candle_info.tokenizer_loaded ? (
+                  <span className="text-green-400 flex items-center">
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    Ready
+                  </span>
+                ) : (
+                  <span className="text-yellow-400">Not loaded</span>
+                )}
+              </p>
             </div>
           )}
         </div>
