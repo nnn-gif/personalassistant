@@ -147,6 +147,7 @@ fn main() {
             services::inference::get_inference_info,
             services::inference::get_candle_models,
             services::inference::get_config_path,
+            services::inference::download_model,
         ])
         .run(generate_context!())
         .expect("error while running tauri application");

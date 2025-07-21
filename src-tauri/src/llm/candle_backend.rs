@@ -1,18 +1,21 @@
 use crate::error::{AppError, Result};
-use candle_core::{DType, Device, Tensor};
-use candle_nn::VarBuilder;
-use candle_transformers::models::quantized_llama::ModelWeights;
+use candle_core::{Device, Tensor};
+use candle_transformers::models::quantized_llama as model;
+use model::ModelWeights;
 use hf_hub::{api::tokio::Api, Repo, RepoType};
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
 use candle_transformers::generation::LogitsProcessor;
+use candle_core::quantized::gguf_file;
+use std::sync::Mutex;
+use std::time::Instant;
 
 pub struct CandleBackend {
     model_id: String,
     revision: String,
     cache_dir: PathBuf,
     device: Device,
-    model: Option<ModelWeights>,
+    model: Mutex<Option<ModelWeights>>,
     tokenizer: Option<Tokenizer>,
 }
 
@@ -28,8 +31,11 @@ impl CandleBackend {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| AppError::Llm(format!("Failed to create cache dir: {}", e)))?;
         
-        // Setup device (CPU for now, can be extended to support CUDA)
+        // Use CPU for now - Metal doesn't support all operations for quantized models
+        // Specifically, rms-norm operation is not implemented for Metal
         let device = Device::Cpu;
+        println!("[CandleBackend] Using CPU device (Metal lacks support for rms-norm in quantized models)");
+        
         println!("[CandleBackend] Using device: {:?}", device);
         
         let mut backend = Self {
@@ -37,14 +43,20 @@ impl CandleBackend {
             revision: revision.to_string(),
             cache_dir,
             device,
-            model: None,
+            model: Mutex::new(None),
             tokenizer: None,
         };
         
-        // Try to load the model
-        if let Err(e) = backend.load_model().await {
-            eprintln!("[CandleBackend] Failed to load model: {}", e);
-            // Don't fail initialization, just leave model as None
+        // Try to load the model with retry
+        match backend.load_model().await {
+            Ok(_) => {
+                println!("[CandleBackend] Model loaded successfully");
+            }
+            Err(e) => {
+                eprintln!("[CandleBackend] Failed to load model: {}", e);
+                eprintln!("[CandleBackend] Will use placeholder responses");
+                // Don't fail initialization, just leave model as None
+            }
         }
         
         Ok(backend)
@@ -62,12 +74,49 @@ impl CandleBackend {
             RepoType::Model,
         ));
         
-        // For simplified implementation, we'll use quantized models
-        // Try to download GGUF format first (most compatible)
-        let model_file = match self.model_id.as_str() {
-            "microsoft/phi-2" => "model-q4k.gguf",
-            "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => "model-q4_k.gguf", 
-            _ => "model.gguf", // Generic fallback
+        println!("[CandleBackend] Repository: {}", self.model_id);
+        println!("[CandleBackend] Repo type: Model");
+        println!("[CandleBackend] Cache directory: {:?}", self.cache_dir);
+        
+        // Use appropriate model repository and file based on selection
+        let (actual_repo, model_file) = match self.model_id.as_str() {
+            "Qwen/Qwen2.5-0.5B-Instruct" => {
+                // Use official Qwen GGUF version (smallest, fastest)
+                ("Qwen/Qwen2.5-0.5B-Instruct-GGUF", "qwen2.5-0.5b-instruct-q4_k_m.gguf")
+            }
+            "Qwen/Qwen2.5-1.5B-Instruct" => {
+                // Use official Qwen GGUF version
+                ("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "qwen2.5-1.5b-instruct-q4_k_m.gguf")
+            }
+            "Qwen/Qwen2.5-3B-Instruct" => {
+                // Use official Qwen GGUF version
+                ("Qwen/Qwen2.5-3B-Instruct-GGUF", "qwen2.5-3b-instruct-q4_k_m.gguf")
+            }
+            "Qwen/Qwen2.5-7B-Instruct" => {
+                // Use official Qwen GGUF version
+                ("Qwen/Qwen2.5-7B-Instruct-GGUF", "qwen2.5-7b-instruct-q4_k_m.gguf")
+            }
+            "microsoft/phi-2" => {
+                ("TheBloke/phi-2-GGUF", "phi-2.Q4_K_M.gguf")
+            }
+            "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => {
+                ("TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF", "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf")
+            }
+            _ => {
+                // Default to Qwen2.5-0.5B if not specified
+                ("Qwen/Qwen2.5-0.5B-Instruct-GGUF", "qwen2.5-0.5b-instruct-q4_k_m.gguf")
+            }
+        };
+        
+        // Update the repo to use the GGUF version
+        let repo = if actual_repo != self.model_id {
+            println!("[CandleBackend] Using GGUF repository: {}", actual_repo);
+            api.repo(Repo::new(
+                actual_repo.to_string(),
+                RepoType::Model,
+            ))
+        } else {
+            repo
         };
         
         println!("[CandleBackend] Attempting to download: {}", model_file);
@@ -80,7 +129,15 @@ impl CandleBackend {
                 println!("[CandleBackend] Primary model file not found, trying alternatives...");
                 
                 // Try different quantization formats
-                let alternatives = ["model-q4_0.gguf", "model-q5_k_m.gguf", "model.safetensors"];
+                let alternatives = [
+                    "model-q4_0.gguf", 
+                    "model-q4_k_m.gguf",
+                    "model-q5_k_m.gguf", 
+                    "model-q8_0.gguf",
+                    "model.gguf",
+                    "ggml-model-q4_0.gguf",
+                    "ggml-model-q4_k.gguf",
+                ];
                 let mut found_path = None;
                 
                 for alt in &alternatives {
@@ -102,9 +159,24 @@ impl CandleBackend {
         
         println!("[CandleBackend] Model downloaded to: {:?}", model_path);
         
-        // Download tokenizer
-        let tokenizer_path = repo.get("tokenizer.json").await
-            .map_err(|e| AppError::Llm(format!("Failed to download tokenizer: {}", e)))?;
+        // Download tokenizer - for GGUF models, we need the original repo's tokenizer
+        println!("[CandleBackend] Downloading tokenizer.json...");
+        
+        // For TheBloke's GGUF models, we need to get tokenizer from original repo
+        let tokenizer_path = if actual_repo != self.model_id && actual_repo.starts_with("TheBloke/") {
+            println!("[CandleBackend] Getting tokenizer from original repository: {}", self.model_id);
+            let original_repo = api.repo(Repo::new(
+                self.model_id.clone(),
+                RepoType::Model,
+            ));
+            original_repo.get("tokenizer.json").await
+                .map_err(|e| AppError::Llm(format!("Failed to download tokenizer: {}", e)))?
+        } else {
+            repo.get("tokenizer.json").await
+                .map_err(|e| AppError::Llm(format!("Failed to download tokenizer: {}", e)))?
+        };
+        
+        println!("[CandleBackend] Tokenizer downloaded to: {:?}", tokenizer_path);
         
         // Load tokenizer
         self.tokenizer = Some(
@@ -112,46 +184,312 @@ impl CandleBackend {
                 .map_err(|e| AppError::Llm(format!("Failed to load tokenizer: {}", e)))?
         );
         
-        println!("[CandleBackend] Tokenizer loaded successfully");
+        println!("[CandleBackend] Tokenizer loaded successfully from: {:?}", tokenizer_path);
         
-        // For now, we'll use a simplified approach
-        // In production, you'd load the actual model weights here
-        println!("[CandleBackend] Model loading complete (using simplified implementation)");
+        // Load the actual model weights
+        println!("[CandleBackend] Loading model weights from: {:?}", model_path);
+        
+        // Check if it's a GGUF file
+        if model_path.to_string_lossy().ends_with(".gguf") {
+            // Load GGUF model
+            let model_data = std::fs::read(&model_path)
+                .map_err(|e| AppError::Llm(format!("Failed to read model file: {}", e)))?;
+            
+            let mut reader = std::io::Cursor::new(model_data);
+            
+            // Load the GGUF file contents
+            let model_content = gguf_file::Content::read(&mut reader)
+                .map_err(|e| AppError::Llm(format!("Failed to parse GGUF file: {}", e)))?;
+            
+            // Create the model from GGUF content
+            let model = ModelWeights::from_gguf(model_content, &mut reader, &self.device)
+                .map_err(|e| AppError::Llm(format!("Failed to load model weights: {}", e)))?;
+            
+            *self.model.lock().unwrap() = Some(model);
+            println!("[CandleBackend] Model weights loaded successfully");
+            println!("[CandleBackend] Ready for inference with model: {}", self.model_id);
+        } else {
+            // For safetensors, we'd need a different loading approach
+            println!("[CandleBackend] Non-GGUF model format not yet implemented");
+            return Err(AppError::Llm("Only GGUF models are currently supported".to_string()));
+        }
         
         Ok(())
     }
     
     pub async fn generate(&self, prompt: &str, max_tokens: usize) -> Result<String> {
-        println!("[CandleBackend] Generating response for prompt: {}", 
+        println!("[CandleBackend] =================================");
+        println!("[CandleBackend] Model: {}", self.model_id);
+        println!("[CandleBackend] Device: {:?}", self.device);
+        println!("[CandleBackend] Max tokens: {}", max_tokens);
+        println!("[CandleBackend] Prompt preview: {}", 
             prompt.chars().take(100).collect::<String>());
+        println!("[CandleBackend] =================================");
         
-        // Check if we have a tokenizer
-        let tokenizer = self.tokenizer.as_ref().ok_or_else(|| {
-            AppError::Llm("Tokenizer not loaded".to_string())
-        })?;
-        
-        // Tokenize the prompt
-        let encoding = tokenizer.encode(prompt, true)
-            .map_err(|e| AppError::Llm(format!("Tokenization failed: {}", e)))?;
-        
-        let input_ids = encoding.get_ids();
-        println!("[CandleBackend] Input tokens: {} tokens", input_ids.len());
-        
-        // For the simplified implementation, we'll generate a response based on the model type
-        // In production, this would run actual inference
-        let response = match self.model_id.as_str() {
-            "microsoft/phi-2" => {
-                self.generate_phi2_style_response(prompt, max_tokens)
-            }
-            "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => {
-                self.generate_tinyllama_style_response(prompt, max_tokens)
-            }
-            _ => {
-                self.generate_generic_response(prompt, max_tokens)
+        // Check if we have a model and tokenizer
+        let mut model_guard = self.model.lock().unwrap();
+        let model = match model_guard.as_mut() {
+            Some(m) => m,
+            None => {
+                // Fallback to placeholder responses if model isn't loaded
+                println!("[CandleBackend] Model not loaded, using placeholder response");
+                return Ok(self.generate_placeholder_response(prompt, max_tokens));
             }
         };
         
-        Ok(response)
+        let tokenizer = match self.tokenizer.as_ref() {
+            Some(t) => t,
+            None => {
+                println!("[CandleBackend] Tokenizer not loaded, using placeholder response");
+                return Ok(self.generate_placeholder_response(prompt, max_tokens));
+            }
+        };
+        
+        // Apply chat template if needed
+        let formatted_prompt = self.apply_chat_template(prompt);
+        
+        // Tokenize the prompt
+        let encoding = tokenizer.encode(formatted_prompt.as_str(), true)
+            .map_err(|e| AppError::Llm(format!("Tokenization failed: {}", e)))?;
+        
+        let tokens = encoding.get_ids().to_vec();
+        println!("[CandleBackend] Input tokens: {} tokens", tokens.len());
+        
+        // Generate tokens
+        let mut generated_tokens = Vec::new();
+        let eos_token_id = self.get_eos_token_id(tokenizer);
+        
+        // Setup sampling parameters
+        let temperature = 0.8;
+        let top_p = 0.95;
+        let repeat_penalty = 1.1;
+        let repeat_last_n = 64;
+        
+        let mut logits_processor = LogitsProcessor::new(
+            299792458, // seed
+            Some(temperature),
+            Some(top_p),
+        );
+        
+        // Try to process entire prompt at once first (faster), fall back to token-by-token if needed
+        let mut next_token = 0u32;
+        println!("[CandleBackend] Processing prompt tokens...");
+        let prompt_start = Instant::now();
+        
+        // First try to process the entire prompt at once
+        let prompt_processed = if tokens.len() > 1 {
+            match self.process_prompt_batch(model, &tokens, &self.device, &mut logits_processor) {
+                Ok(token) => {
+                    println!("[CandleBackend] Successfully processed prompt in batch mode");
+                    next_token = token;
+                    true
+                }
+                Err(e) => {
+                    println!("[CandleBackend] Batch processing failed: {}, falling back to token-by-token", e);
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        
+        // Fall back to token-by-token processing if batch failed
+        if !prompt_processed {
+            for (pos, &token) in tokens.iter().enumerate() {
+                let input = Tensor::new(&[token as u32], &self.device)
+                    .map_err(|e| AppError::Llm(format!("Failed to create input tensor: {}", e)))?
+                    .unsqueeze(0)
+                    .map_err(|e| AppError::Llm(format!("Failed to unsqueeze tensor: {}", e)))?;
+                
+                let logits = model.forward(&input, pos)
+                    .map_err(|e| AppError::Llm(format!("Model forward pass failed at position {}: {}", pos, e)))?;
+                
+                let logits = logits.squeeze(0)
+                    .map_err(|e| AppError::Llm(format!("Failed to squeeze logits: {}", e)))?;
+                
+                // Only sample from the last token of the prompt
+                if pos == tokens.len() - 1 {
+                    next_token = logits_processor.sample(&logits)
+                        .map_err(|e| AppError::Llm(format!("Failed to sample token: {}", e)))? as u32;
+                }
+            }
+        }
+        
+        let prompt_time = prompt_start.elapsed();
+        println!("[CandleBackend] Prompt processing took: {:.2}s ({:.2} tokens/s)", 
+            prompt_time.as_secs_f32(), 
+            tokens.len() as f32 / prompt_time.as_secs_f32());
+        
+        // Add the first generated token
+        generated_tokens.push(next_token);
+        let mut all_tokens = tokens.clone();
+        all_tokens.push(next_token as u32);
+        
+        // Continue generation
+        let generation_start = Instant::now();
+        let mut token_times = Vec::new();
+        
+        for index in 1..max_tokens {
+            let token_start = Instant::now();
+            
+            let input = Tensor::new(&[next_token], &self.device)
+                .map_err(|e| AppError::Llm(format!("Failed to create input tensor: {}", e)))?
+                .unsqueeze(0)
+                .map_err(|e| AppError::Llm(format!("Failed to unsqueeze tensor: {}", e)))?;
+            
+            let position = tokens.len() + index - 1;
+            let logits = model.forward(&input, position)
+                .map_err(|e| AppError::Llm(format!("Model forward pass failed: {}", e)))?;
+            
+            // Get the last token's logits (squeeze from [1, vocab_size] to [vocab_size])
+            let logits = logits.squeeze(0)
+                .map_err(|e| AppError::Llm(format!("Failed to squeeze logits: {}", e)))?;
+            
+            // Apply repetition penalty
+            let logits = candle_transformers::utils::apply_repeat_penalty(
+                &logits,
+                repeat_penalty,
+                &all_tokens[all_tokens.len().saturating_sub(repeat_last_n)..],
+            ).map_err(|e| AppError::Llm(format!("Failed to apply repeat penalty: {}", e)))?;
+            
+            // Sample next token
+            next_token = logits_processor.sample(&logits)
+                .map_err(|e| AppError::Llm(format!("Failed to sample token: {}", e)))? as u32;
+            
+            // Add to generated tokens
+            generated_tokens.push(next_token);
+            all_tokens.push(next_token);
+            
+            let token_time = token_start.elapsed();
+            token_times.push(token_time.as_secs_f32());
+            
+            // Check for EOS token
+            if Some(next_token) == eos_token_id.map(|id| id as u32) {
+                break;
+            }
+            
+            // Progress indicator with timing
+            if index % 10 == 0 {
+                let avg_time = token_times.iter().sum::<f32>() / token_times.len() as f32;
+                println!("[CandleBackend] Generated {} tokens (avg: {:.3}s/token, {:.1} tokens/s)", 
+                    index, avg_time, 1.0 / avg_time);
+            }
+        }
+        
+        let generation_time = generation_start.elapsed();
+        println!("[CandleBackend] Generation took: {:.2}s for {} tokens ({:.2} tokens/s)", 
+            generation_time.as_secs_f32(), 
+            generated_tokens.len() - 1,  // -1 because first token was from prompt
+            (generated_tokens.len() - 1) as f32 / generation_time.as_secs_f32());
+        
+        // Decode the generated tokens
+        let generated_text = tokenizer.decode(&generated_tokens, true)
+            .map_err(|e| AppError::Llm(format!("Failed to decode tokens: {}", e)))?;
+        
+        println!("[CandleBackend] Generation complete: {} tokens", generated_tokens.len());
+        
+        Ok(generated_text)
+    }
+    
+    fn apply_chat_template(&self, prompt: &str) -> String {
+        // Apply appropriate chat template based on the model
+        if self.model_id.starts_with("Qwen/") {
+            // Qwen2.5 uses ChatML format
+            format!(
+                "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+                prompt
+            )
+        } else {
+            match self.model_id.as_str() {
+                "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => {
+                    format!(
+                        "<|system|>\nYou are a helpful assistant.</s>\n<|user|>\n{}</s>\n<|assistant|>\n",
+                        prompt
+                    )
+                }
+                "microsoft/phi-2" => {
+                    format!("Instruct: {}\nOutput:", prompt)
+                }
+                _ => {
+                    prompt.to_string()
+                }
+            }
+        }
+    }
+    
+    fn generate_placeholder_response(&self, prompt: &str, max_tokens: usize) -> String {
+        // Provide model-specific placeholder responses when model isn't loaded
+        match self.model_id.as_str() {
+            "microsoft/phi-2" => self.generate_phi2_style_response(prompt, max_tokens),
+            "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => self.generate_tinyllama_style_response(prompt, max_tokens),
+            _ => self.generate_generic_response(prompt, max_tokens),
+        }
+    }
+    
+    fn process_prompt_batch(
+        &self,
+        model: &mut ModelWeights,
+        tokens: &[u32],
+        device: &Device,
+        logits_processor: &mut LogitsProcessor,
+    ) -> Result<u32> {
+        // Try to process the entire prompt at once
+        let input_tokens: Vec<u32> = tokens.iter().copied().collect();
+        let input = Tensor::new(input_tokens.as_slice(), device)
+            .map_err(|e| AppError::Llm(format!("Failed to create batch input tensor: {}", e)))?
+            .unsqueeze(0)
+            .map_err(|e| AppError::Llm(format!("Failed to unsqueeze batch tensor: {}", e)))?;
+        
+        // Forward pass with position 0 (might not work for all models)
+        let logits = model.forward(&input, 0)
+            .map_err(|e| AppError::Llm(format!("Batch forward pass failed: {}", e)))?;
+        
+        // Get the last token's logits
+        let _batch_size = logits.dim(0)
+            .map_err(|e| AppError::Llm(format!("Failed to get batch size: {}", e)))?;
+        let seq_len = logits.dim(1)
+            .map_err(|e| AppError::Llm(format!("Failed to get sequence length: {}", e)))?;
+        let _vocab_size = logits.dim(2)
+            .map_err(|e| AppError::Llm(format!("Failed to get vocab size: {}", e)))?;
+        
+        // Extract last token logits
+        let last_logits = logits
+            .narrow(1, seq_len - 1, 1)
+            .map_err(|e| AppError::Llm(format!("Failed to narrow logits: {}", e)))?
+            .squeeze(0)
+            .map_err(|e| AppError::Llm(format!("Failed to squeeze dim 0: {}", e)))?
+            .squeeze(0)
+            .map_err(|e| AppError::Llm(format!("Failed to squeeze dim 1: {}", e)))?;
+        
+        // Sample next token
+        let next_token = logits_processor.sample(&last_logits)
+            .map_err(|e| AppError::Llm(format!("Failed to sample from batch: {}", e)))? as u32;
+        
+        Ok(next_token)
+    }
+    
+    fn get_eos_token_id(&self, tokenizer: &Tokenizer) -> Option<u32> {
+        // Get EOS token ID based on model type
+        if self.model_id.starts_with("Qwen/") {
+            // Qwen uses <|im_end|> as EOS token
+            tokenizer.token_to_id("<|im_end|>")
+        } else {
+            match self.model_id.as_str() {
+                "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => {
+                    tokenizer.token_to_id("</s>")
+                }
+                "microsoft/phi-2" => {
+                    tokenizer.token_to_id("<|endoftext|>")
+                }
+                _ => {
+                    // Try common EOS tokens
+                    tokenizer.token_to_id("<|im_end|>")
+                        .or_else(|| tokenizer.token_to_id("</s>"))
+                        .or_else(|| tokenizer.token_to_id("<|endoftext|>"))
+                        .or_else(|| tokenizer.token_to_id("<eos>"))
+                }
+            }
+        }
     }
     
     fn generate_phi2_style_response(&self, prompt: &str, max_tokens: usize) -> String {
@@ -247,8 +585,10 @@ impl CandleBackend {
             model_type: self.model_id.clone(),
             device: format!("{:?}", self.device),
             cache_dir: self.cache_dir.to_string_lossy().to_string(),
-            loaded: self.tokenizer.is_some(),
+            loaded: self.model.lock().unwrap().is_some(),
             tokenizer_loaded: self.tokenizer.is_some(),
+            model_loaded: self.model.lock().unwrap().is_some(),
+            supported_features: vec![],
         }
     }
 }
@@ -260,6 +600,8 @@ pub struct ModelInfo {
     pub cache_dir: String,
     pub loaded: bool,
     pub tokenizer_loaded: bool,
+    pub model_loaded: bool,
+    pub supported_features: Vec<String>,
 }
 
 // Advanced implementation for future use

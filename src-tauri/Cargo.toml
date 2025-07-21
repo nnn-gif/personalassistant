@@ -50,11 +50,16 @@ walkdir = "2.4"
 mime_guess = "2.0"
 toml = "0.8"
 # Local inference with Candle
-candle-core = "0.8"
+candle-core = { version = "0.8", features = ["metal"] }
 candle-nn = "0.8"
 candle-transformers = "0.8"
 tokenizers = { version = "0.20", features = ["http"] }
 hf-hub = { version = "0.3", features = ["tokio"] }
+rand = "0.8"
+# Crane inference engine (built on Candle with better Metal support)
+# crane-core = { git = "https://github.com/lucasjinreal/Crane.git", branch = "main" }
+# Unified LLM interface for multiple backends
+# callm = { version = "0.2", features = ["metal"] } # Temporarily disabled due to version conflicts
 # Simplified approach - use system tools and enhanced Ollama
 # vosk = "0.3.1"  # Commented out due to native library dependencies
 

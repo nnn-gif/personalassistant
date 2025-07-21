@@ -17,7 +17,7 @@ interface SidebarProps {
 
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'chat', label: 'Assistant Chat', icon: MessageCircle },
+  { id: 'chat', label: 'PlayGround', icon: MessageCircle },
   { id: 'goals', label: 'Goals', icon: Target },
   { id: 'activity', label: 'Activity Monitor', icon: Activity },
   { id: 'audio', label: 'Audio Recorder', icon: Mic },

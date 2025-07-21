@@ -29,6 +29,8 @@ pub struct ServicesConfig {
 pub enum InferenceProvider {
     Ollama,
     Candle,
+    Crane,
+    Callm,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,15 +79,18 @@ impl Default for Config {
                     .unwrap_or_else(|_| "nomic-embed-text:latest".to_string()),
                 inference_provider: match std::env::var("INFERENCE_PROVIDER").as_deref() {
                     Ok("candle") => InferenceProvider::Candle,
-                    _ => InferenceProvider::Ollama,
+                    Ok("crane") => InferenceProvider::Crane,
+                    Ok("callm") => InferenceProvider::Callm,
+                    Ok("ollama") => InferenceProvider::Ollama,
+                    _ => InferenceProvider::Callm, // Default to Callm
                 },
                 candle_model_id: std::env::var("CANDLE_MODEL_ID")
-                    .unwrap_or_else(|_| "microsoft/phi-2".to_string()),
+                    .unwrap_or_else(|_| "TinyLlama/TinyLlama-1.1B-Chat-v1.0".to_string()),
                 candle_model_revision: std::env::var("CANDLE_MODEL_REVISION")
                     .unwrap_or_else(|_| "main".to_string()),
                 candle_cache_dir: std::env::var("CANDLE_CACHE_DIR")
                     .unwrap_or_else(|_| dirs::cache_dir()
-                        .map(|d| d.join("personalassistant").join("models").to_string_lossy().to_string())
+                        .map(|d| d.join("huggingface").join("hub").to_string_lossy().to_string())
                         .unwrap_or_else(|| "./models".to_string())),
             },
             tracking: TrackingConfig {
