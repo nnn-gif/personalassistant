@@ -1,26 +1,349 @@
-use crate::config::Config;
+use crate::config::{Config, InferenceProvider};
 use crate::error::{AppError, Result};
 use crate::models::{Activity, ProductivityInsights, ProductivityScore};
 use chrono::Utc;
 use genai::chat::{ChatMessage, ChatRequest};
 use genai::Client;
+use std::path::PathBuf;
+
+mod candle_backend;
+use candle_backend::CandleBackend;
+
+mod crane_backend;
+use crane_backend::CraneBackend;
+
+mod callm_backend;
+use callm_backend::CallmBackend;
+
+mod bert_metal_backend;
+
+pub mod llama_cpp_metal_backend;
+use llama_cpp_metal_backend::LlamaCppMetalBackend;
 
 pub struct LlmClient {
     model_name: String,
+    inference_provider: InferenceProvider,
+    candle_backend: Option<CandleBackend>,
+    crane_backend: Option<CraneBackend>,
+    callm_backend: Option<CallmBackend>,
+    llama_cpp_backend: Option<LlamaCppMetalBackend>,
 }
 
 impl LlmClient {
     pub fn new() -> Self {
         let config = Config::get();
+        
+        // For synchronous new(), we'll initialize without Candle/Crane
+        // They will be initialized later via init_candle_if_needed()
         Self {
             model_name: config.services.ollama_model.clone(),
+            inference_provider: config.services.inference_provider.clone(),
+            candle_backend: None,
+            crane_backend: None,
+            callm_backend: None,
+            llama_cpp_backend: None,
         }
+    }
+    
+    /// Update the inference provider and model without restarting
+    pub async fn update_inference_provider(
+        &mut self,
+        provider: InferenceProvider,
+        model_id: Option<String>,
+    ) -> Result<()> {
+        println!("[LlmClient] Updating inference provider to: {:?}", provider);
+        
+        // Update the provider
+        self.inference_provider = provider.clone();
+        
+        // Update model IDs based on provider
+        match provider {
+            InferenceProvider::Ollama => {
+                if let Some(id) = model_id {
+                    self.model_name = id;
+                }
+                // Clear other backends
+                self.candle_backend = None;
+                self.crane_backend = None;
+                self.callm_backend = None;
+            }
+            InferenceProvider::Candle => {
+                // Initialize Candle backend if needed
+                if self.candle_backend.is_none() {
+                    let config = Config::get();
+                    let model_id = model_id.as_ref().unwrap_or(&config.services.candle_model_id);
+                    
+                    println!("[LlmClient] Initializing Candle backend with model: {}", model_id);
+                    match CandleBackend::new(
+                        model_id,
+                        &config.services.candle_model_revision,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        Ok(backend) => {
+                            println!("[LlmClient] Candle backend initialized successfully");
+                            self.candle_backend = Some(backend);
+                        }
+                        Err(e) => {
+                            eprintln!("[LlmClient] Failed to initialize Candle backend: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                // Clear other backends
+                self.crane_backend = None;
+                self.callm_backend = None;
+            }
+            InferenceProvider::Crane => {
+                // Initialize Crane backend if needed
+                if self.crane_backend.is_none() {
+                    let config = Config::get();
+                    let model_id = model_id.as_ref().unwrap_or(&config.services.candle_model_id);
+                    
+                    println!("[LlmClient] Initializing Crane backend with model: {}", model_id);
+                    match CraneBackend::new(
+                        model_id,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        Ok(backend) => {
+                            println!("[LlmClient] Crane backend initialized successfully");
+                            self.crane_backend = Some(backend);
+                        }
+                        Err(e) => {
+                            eprintln!("[LlmClient] Failed to initialize Crane backend: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                // Clear other backends
+                self.candle_backend = None;
+                self.callm_backend = None;
+            }
+            InferenceProvider::Callm => {
+                // Initialize Callm backend if needed
+                if self.callm_backend.is_none() {
+                    let config = Config::get();
+                    let model_id = model_id.as_ref().unwrap_or(&config.services.candle_model_id);
+                    
+                    println!("[LlmClient] Initializing Callm backend with model: {}", model_id);
+                    match CallmBackend::new(
+                        model_id,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        Ok(backend) => {
+                            println!("[LlmClient] Callm backend initialized successfully");
+                            self.callm_backend = Some(backend);
+                        }
+                        Err(e) => {
+                            eprintln!("[LlmClient] Failed to initialize Callm backend: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                // Clear other backends
+                self.candle_backend = None;
+                self.crane_backend = None;
+            }
+            InferenceProvider::LlamaCpp => {
+                // Initialize LlamaCpp backend if needed
+                if self.llama_cpp_backend.is_none() {
+                    let config = Config::get();
+                    let model_id = model_id.as_ref().unwrap_or(&config.services.candle_model_id);
+                    
+                    println!("[LlmClient] Initializing LlamaCpp backend with model: {}", model_id);
+                    match LlamaCppMetalBackend::new(
+                        model_id,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        Ok(backend) => {
+                            println!("[LlmClient] LlamaCpp backend initialized successfully");
+                            self.llama_cpp_backend = Some(backend);
+                        }
+                        Err(e) => {
+                            eprintln!("[LlmClient] Failed to initialize LlamaCpp backend: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                // Clear other backends
+                self.candle_backend = None;
+                self.crane_backend = None;
+                self.callm_backend = None;
+            }
+        }
+        
+        println!("[LlmClient] Inference provider updated successfully");
+        Ok(())
+    }
+    
+    pub async fn new_async() -> Self {
+        let config = Config::get();
+        
+        // Initialize appropriate backend based on provider
+        let (candle_backend, crane_backend, callm_backend, llama_cpp_backend) = match config.services.inference_provider {
+            InferenceProvider::Candle => {
+                println!("[LlmClient] Initializing Candle backend...");
+                match CandleBackend::new(
+                    &config.services.candle_model_id,
+                    &config.services.candle_model_revision,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] Candle backend initialized successfully");
+                        (Some(backend), None, None, None)
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize Candle backend: {}", e);
+                        eprintln!("[LlmClient] Falling back to Ollama");
+                        (None, None, None, None)
+                    }
+                }
+            }
+            InferenceProvider::Crane => {
+                println!("[LlmClient] Initializing Crane backend...");
+                match CraneBackend::new(
+                    &config.services.candle_model_id, // Reuse same model config
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] Crane backend initialized successfully");
+                        (None, Some(backend), None, None)
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize Crane backend: {}", e);
+                        eprintln!("[LlmClient] Falling back to Ollama");
+                        (None, None, None, None)
+                    }
+                }
+            }
+            InferenceProvider::Callm => {
+                println!("[LlmClient] Initializing Callm backend...");
+                match CallmBackend::new(
+                    &config.services.candle_model_id,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] Callm backend initialized successfully");
+                        (None, None, Some(backend), None)
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize Callm backend: {}", e);
+                        eprintln!("[LlmClient] Falling back to Ollama");
+                        (None, None, None, None)
+                    }
+                }
+            }
+            InferenceProvider::LlamaCpp => {
+                println!("[LlmClient] Initializing LlamaCpp backend...");
+                match LlamaCppMetalBackend::new(
+                    &config.services.candle_model_id,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] LlamaCpp backend initialized successfully");
+                        (None, None, None, Some(backend))
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize LlamaCpp backend: {}", e);
+                        eprintln!("[LlmClient] Falling back to Ollama");
+                        (None, None, None, None)
+                    }
+                }
+            }
+            _ => (None, None, None, None),
+        };
+        
+        Self {
+            model_name: config.services.ollama_model.clone(),
+            inference_provider: config.services.inference_provider.clone(),
+            candle_backend,
+            crane_backend,
+            callm_backend,
+            llama_cpp_backend,
+        }
+    }
+    
+    /// Initialize backend if needed (can be called after construction)
+    pub async fn init_backend_if_needed(&mut self) -> Result<()> {
+        let config = Config::get();
+        
+        match config.services.inference_provider {
+            InferenceProvider::Candle if self.candle_backend.is_none() => {
+                println!("[LlmClient] Late initialization of Candle backend...");
+                match CandleBackend::new(
+                    &config.services.candle_model_id,
+                    &config.services.candle_model_revision,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] Candle backend initialized successfully");
+                        self.candle_backend = Some(backend);
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize Candle backend: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            InferenceProvider::Crane if self.crane_backend.is_none() => {
+                println!("[LlmClient] Late initialization of Crane backend...");
+                match CraneBackend::new(
+                    &config.services.candle_model_id,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] Crane backend initialized successfully");
+                        self.crane_backend = Some(backend);
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize Crane backend: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            InferenceProvider::Callm if self.callm_backend.is_none() => {
+                println!("[LlmClient] Late initialization of Callm backend...");
+                match CallmBackend::new(
+                    &config.services.candle_model_id,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] Callm backend initialized successfully");
+                        self.callm_backend = Some(backend);
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize Callm backend: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            InferenceProvider::LlamaCpp if self.llama_cpp_backend.is_none() => {
+                println!("[LlmClient] Late initialization of LlamaCpp backend...");
+                match LlamaCppMetalBackend::new(
+                    &config.services.candle_model_id,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] LlamaCpp backend initialized successfully");
+                        self.llama_cpp_backend = Some(backend);
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize LlamaCpp backend: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            _ => {}
+        }
+        
+        Ok(())
     }
 
     pub async fn generate_productivity_insights(
         &self,
         activities: &[Activity],
     ) -> Result<ProductivityInsights> {
+        println!("[LLM] Generating productivity insights for {} activities", activities.len());
+        
         // If no activities, return helpful getting started message
         if activities.is_empty() {
             return Ok(ProductivityInsights {
@@ -193,10 +516,136 @@ impl LlmClient {
     }
 
     pub async fn send_request_with_model(&self, prompt: &str, model: &str) -> Result<String> {
-        println!(
-            "LLM: Creating client and preparing request for model: {}",
-            model
-        );
+        // Get current configuration to support hot-swapping
+        let config = Config::get();
+        let current_provider = &config.services.inference_provider;
+        
+        // Log the inference provider and model being used
+        println!("[LLM] Current inference provider: {:?}", current_provider);
+        println!("[LLM] Configured provider: {:?}", self.inference_provider);
+        
+        // Check which backend to use based on current configuration
+        match current_provider {
+            InferenceProvider::Candle => {
+                if let Some(candle) = &self.candle_backend {
+                    println!("[LLM] Using Candle backend for inference");
+                    println!("[LLM] Candle model: {}", config.services.candle_model_id);
+                    return candle.generate(prompt, 500).await; // Max 500 tokens
+                } else {
+                    println!("[LLM] Candle backend not available, initializing...");
+                    // Try to initialize Candle backend on demand
+                    if let Ok(backend) = CandleBackend::new(
+                        &config.services.candle_model_id,
+                        &config.services.candle_model_revision,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        println!("[LLM] Candle backend initialized successfully");
+                        return backend.generate(prompt, 500).await;
+                    } else {
+                        println!("[LLM] Failed to initialize Candle backend, falling back to Ollama");
+                    }
+                }
+            }
+            InferenceProvider::Crane => {
+                if let Some(crane) = &self.crane_backend {
+                    println!("[LLM] Using Crane backend for inference");
+                    println!("[LLM] Crane model: {}", config.services.candle_model_id);
+                    return crane.generate(prompt, 500).await; // Max 500 tokens
+                } else {
+                    println!("[LLM] Crane backend not available, initializing...");
+                    // Try to initialize Crane backend on demand
+                    if let Ok(backend) = CraneBackend::new(
+                        &config.services.candle_model_id,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        println!("[LLM] Crane backend initialized successfully");
+                        return backend.generate(prompt, 500).await;
+                    } else {
+                        println!("[LLM] Failed to initialize Crane backend, falling back to Ollama");
+                    }
+                }
+            }
+            InferenceProvider::Callm => {
+                // Get the current model from environment variable (which gets updated dynamically)
+                let current_model = std::env::var("CANDLE_MODEL_ID")
+                    .unwrap_or_else(|_| config.services.candle_model_id.clone());
+                
+                println!("[LLM] Using Callm backend for inference");
+                println!("[LLM] Requested model: {}", current_model);
+                
+                // Check if we need to reinitialize with a different model
+                let needs_reinit = if let Some(callm) = &self.callm_backend {
+                    // Check if the model has changed
+                    let backend_model = &callm.model_id;
+                    backend_model != &current_model
+                } else {
+                    true
+                };
+                
+                if needs_reinit {
+                    println!("[LLM] Initializing Callm backend with model: {}", current_model);
+                    // Initialize new backend with current model
+                    match CallmBackend::new(
+                        &current_model,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        Ok(backend) => {
+                            println!("[LLM] Callm backend initialized successfully");
+                            match backend.generate(prompt, 500).await {
+                                Ok(response) => {
+                                    println!("[LLM] Callm generated response successfully");
+                                    return Ok(response);
+                                }
+                                Err(e) => {
+                                    eprintln!("[LLM] Callm generation failed: {}", e);
+                                    eprintln!("[LLM] Falling back to Ollama");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[LLM] Failed to initialize Callm backend: {}", e);
+                            eprintln!("[LLM] Falling back to Ollama");
+                        }
+                    }
+                } else if let Some(callm) = &self.callm_backend {
+                    // Use existing backend
+                    match callm.generate(prompt, 500).await {
+                        Ok(response) => {
+                            println!("[LLM] Callm generated response successfully");
+                            return Ok(response);
+                        }
+                        Err(e) => {
+                            eprintln!("[LLM] Callm generation failed: {}", e);
+                            eprintln!("[LLM] Falling back to Ollama");
+                        }
+                    }
+                }
+            }
+            InferenceProvider::LlamaCpp => {
+                if let Some(llama_cpp) = &self.llama_cpp_backend {
+                    println!("[LLM] Using LlamaCpp backend for inference with Metal support");
+                    println!("[LLM] LlamaCpp model: {}", config.services.candle_model_id);
+                    return llama_cpp.generate(prompt, 500).await; // Max 500 tokens
+                } else {
+                    println!("[LLM] LlamaCpp backend not available, initializing...");
+                    // Try to initialize LlamaCpp backend on demand
+                    if let Ok(backend) = LlamaCppMetalBackend::new(
+                        &config.services.candle_model_id,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        println!("[LLM] LlamaCpp backend initialized successfully");
+                        return backend.generate(prompt, 500).await;
+                    } else {
+                        println!("[LLM] Failed to initialize LlamaCpp backend, falling back to Ollama");
+                    }
+                }
+            }
+            _ => {}
+        }
+        
+        // Use Ollama as fallback
+        println!("[LLM] Using Ollama for inference");
+        println!("[LLM] Ollama model: {}", model);
         let client = Client::default();
 
         let chat_req = ChatRequest::new(vec![ChatMessage::user(prompt)]);
@@ -291,4 +740,66 @@ impl LlmClient {
         serde_json::from_str(cleaned.trim())
             .map_err(|e| AppError::Llm(format!("Failed to parse JSON response: {}", e)))
     }
+    
+    pub async fn get_inference_info(&self) -> InferenceInfo {
+        let config = Config::get();
+        
+        let (provider_str, model_display) = match &self.inference_provider {
+            InferenceProvider::Candle => {
+                let model = match config.services.candle_model_id.as_str() {
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => "TinyLlama 1.1B Chat",
+                    "microsoft/phi-2" => "Phi-2 2.7B",
+                    "mistralai/Mistral-7B-v0.1" => "Mistral 7B",
+                    _ => &config.services.candle_model_id,
+                };
+                ("Candle", model.to_string())
+            }
+            InferenceProvider::Crane => {
+                let model = match config.services.candle_model_id.as_str() {
+                    "Qwen/Qwen2.5-0.5B-Instruct" => "Qwen2.5 0.5B (Crane)",
+                    "Qwen/Qwen2.5-1.5B-Instruct" => "Qwen2.5 1.5B (Crane)",
+                    "Qwen/Qwen2.5-3B-Instruct" => "Qwen2.5 3B (Crane)",
+                    "Qwen/Qwen2.5-7B-Instruct" => "Qwen2.5 7B (Crane)",
+                    _ => &config.services.candle_model_id,
+                };
+                ("Crane", model.to_string())
+            }
+            InferenceProvider::Callm => {
+                let model = match config.services.candle_model_id.as_str() {
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => "TinyLlama 1.1B (Callm)",
+                    "microsoft/phi-2" => "Phi-2 2.7B (Callm)",
+                    model if model.starts_with("Qwen/Qwen2") => "Qwen2 (Callm)",
+                    _ => &config.services.candle_model_id,
+                };
+                ("Callm", model.to_string())
+            }
+            InferenceProvider::Ollama => {
+                ("Ollama", self.model_name.clone())
+            }
+            InferenceProvider::LlamaCpp => {
+                let model = match config.services.candle_model_id.as_str() {
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => "TinyLlama 1.1B (LlamaCpp/Metal)",
+                    "Qwen/Qwen2.5-0.5B-Instruct" => "Qwen2.5 0.5B (LlamaCpp/Metal)",
+                    _ => &config.services.candle_model_id,
+                };
+                ("LlamaCpp", model.to_string())
+            }
+        };
+        
+        println!("[LLM] Inference info - Provider: {}, Model: {}", provider_str, model_display);
+        
+        // For now, skip backend info to avoid hanging
+        InferenceInfo {
+            provider: provider_str.to_string(),
+            model_name: model_display,
+            candle_info: None, // Skip backend info for now
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct InferenceInfo {
+    pub provider: String,
+    pub model_name: String,
+    pub candle_info: Option<candle_backend::ModelInfo>,
 }
