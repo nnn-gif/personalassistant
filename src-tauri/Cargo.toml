@@ -49,7 +49,6 @@ pdf-extract = "0.7"
 zip = "2.1"
 walkdir = "2.4"
 mime_guess = "2.0"
-toml = "0.8"
 # Local inference with Candle
 candle-core = { version = "0.9.1", features = ["metal"] }
 candle-nn = "0.9.1"
@@ -63,10 +62,15 @@ rand = "0.8"
 # callm = { version = "0.2", features = ["metal"] } # Temporarily disabled due to version conflicts
 # Simplified approach - use system tools and enhanced Ollama
 # vosk = "0.3.1"  # Commented out due to native library dependencies
-# LLama.cpp bindings with full Metal support
-llama_cpp = { version = "0.3", features = ["metal"] }
+# Configuration
+toml = "0.8"
+dotenv = "0.15"
 
+# Platform-specific dependencies
 [target.'cfg(target_os = "macos")'.dependencies]
+# LLama.cpp with Metal support
+llama_cpp = { version = "0.3", features = ["metal"] }
+# macOS system libraries
 objc = "0.2"
 objc-foundation = "0.1"
 cocoa = "0.26"
@@ -75,9 +79,14 @@ core-foundation = "0.10"
 objc2 = "0.5"
 objc2-foundation = { version = "0.2", features = ["NSString", "NSDate", "NSArray", "NSBundle"] }
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSApplication"] }
-# Configuration
-toml = "0.8"
-dotenv = "0.15"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# LLama.cpp with CUDA and Vulkan support
+llama_cpp = { version = "0.3", features = ["cuda", "vulkan"] }
+
+[target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
+# LLama.cpp CPU-only for other platforms
+llama_cpp = { version = "0.3" }
 
 [features]
 default = ["custom-protocol"]

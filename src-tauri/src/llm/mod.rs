@@ -233,13 +233,16 @@ impl LlmClient {
                 }
             }
             InferenceProvider::LlamaCpp => {
-                println!("[LlmClient] Initializing LlamaCpp backend...");
+                let device_type = if cfg!(target_os = "macos") { "Metal" } 
+                                else if cfg!(target_os = "windows") { "GPU" }
+                                else { "CPU" };
+                println!("[LlmClient] Initializing LlamaCpp backend with {} support...", device_type);
                 match LlamaCppMetalBackend::new(
                     &config.services.candle_model_id,
                     PathBuf::from(&config.services.candle_cache_dir),
                 ).await {
                     Ok(backend) => {
-                        println!("[LlmClient] LlamaCpp backend initialized successfully");
+                        println!("[LlmClient] LlamaCpp backend initialized successfully with {} support", device_type);
                         (None, None, None, Some(backend))
                     }
                     Err(e) => {
@@ -623,20 +626,38 @@ impl LlmClient {
             }
             InferenceProvider::LlamaCpp => {
                 if let Some(llama_cpp) = &self.llama_cpp_backend {
-                    println!("[LLM] Using LlamaCpp backend for inference with Metal support");
+                    let device_type = if cfg!(target_os = "macos") { "Metal" } 
+                                    else if cfg!(target_os = "windows") { "GPU" }
+                                    else { "CPU" };
+                    println!("[LLM] Using LlamaCpp backend for inference with {} support", device_type);
                     println!("[LLM] LlamaCpp model: {}", config.services.candle_model_id);
-                    return llama_cpp.generate(prompt, 500).await; // Max 500 tokens
+                    
+                    // Try to generate with LlamaCpp, fall back to Ollama on error
+                    match llama_cpp.generate(prompt, 500).await {
+                        Ok(response) => return Ok(response),
+                        Err(e) => {
+                            eprintln!("[LLM] LlamaCpp generation failed: {}, falling back to Ollama", e);
+                        }
+                    }
                 } else {
                     println!("[LLM] LlamaCpp backend not available, initializing...");
                     // Try to initialize LlamaCpp backend on demand
-                    if let Ok(backend) = LlamaCppMetalBackend::new(
+                    match LlamaCppMetalBackend::new(
                         &config.services.candle_model_id,
                         PathBuf::from(&config.services.candle_cache_dir),
                     ).await {
-                        println!("[LLM] LlamaCpp backend initialized successfully");
-                        return backend.generate(prompt, 500).await;
-                    } else {
-                        println!("[LLM] Failed to initialize LlamaCpp backend, falling back to Ollama");
+                        Ok(backend) => {
+                            println!("[LLM] LlamaCpp backend initialized successfully");
+                            match backend.generate(prompt, 500).await {
+                                Ok(response) => return Ok(response),
+                                Err(e) => {
+                                    eprintln!("[LLM] LlamaCpp generation failed: {}, falling back to Ollama", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[LLM] Failed to initialize LlamaCpp backend: {}, falling back to Ollama", e);
+                        }
                     }
                 }
             }
@@ -777,12 +798,15 @@ impl LlmClient {
                 ("Ollama", self.model_name.clone())
             }
             InferenceProvider::LlamaCpp => {
+                let device_suffix = if cfg!(target_os = "macos") { "Metal" } 
+                                  else if cfg!(target_os = "windows") { "GPU" }
+                                  else { "CPU" };
                 let model = match config.services.candle_model_id.as_str() {
-                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => "TinyLlama 1.1B (LlamaCpp/Metal)",
-                    "Qwen/Qwen2.5-0.5B-Instruct" => "Qwen2.5 0.5B (LlamaCpp/Metal)",
-                    _ => &config.services.candle_model_id,
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => format!("TinyLlama 1.1B (LlamaCpp/{})", device_suffix),
+                    "Qwen/Qwen2.5-0.5B-Instruct" => format!("Qwen2.5 0.5B (LlamaCpp/{})", device_suffix),
+                    _ => format!("{} (LlamaCpp/{})", config.services.candle_model_id, device_suffix),
                 };
-                ("LlamaCpp", model.to_string())
+                ("LlamaCpp", model)
             }
         };
         
