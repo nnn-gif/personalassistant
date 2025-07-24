@@ -55,6 +55,12 @@ pub async fn update_inference_config(
                 config.services.candle_model_id = id;
             }
         }
+        InferenceProvider::LlamaCpp => {
+            // LlamaCpp uses the same model config as Candle
+            if let Some(id) = model_id {
+                config.services.candle_model_id = id;
+            }
+        }
     }
     
     // Save the configuration

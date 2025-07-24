@@ -2,6 +2,7 @@
 name = "personalassistant"
 version = "1.0.0"
 edition = "2021"
+default-run = "personalassistant"
 
 [lib]
 name = "personalassistant_lib"
@@ -50,9 +51,9 @@ walkdir = "2.4"
 mime_guess = "2.0"
 toml = "0.8"
 # Local inference with Candle
-candle-core = { version = "0.8", features = ["metal"] }
-candle-nn = "0.8"
-candle-transformers = "0.8"
+candle-core = { version = "0.9.1", features = ["metal"] }
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
 tokenizers = { version = "0.20", features = ["http"] }
 hf-hub = { version = "0.3", features = ["tokio"] }
 rand = "0.8"
@@ -62,6 +63,8 @@ rand = "0.8"
 # callm = { version = "0.2", features = ["metal"] } # Temporarily disabled due to version conflicts
 # Simplified approach - use system tools and enhanced Ollama
 # vosk = "0.3.1"  # Commented out due to native library dependencies
+# LLama.cpp bindings with full Metal support
+llama_cpp = { version = "0.3", features = ["metal"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
@@ -79,3 +82,28 @@ dotenv = "0.15"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[[bin]]
+name = "personalassistant"
+path = "src/main.rs"
+
+# Temporarily disabled test binaries to speed up build
+# [[bin]]
+# name = "test_crane_cpu"
+# path = "test_crane_cpu.rs"
+
+# [[bin]]
+# name = "test_crane_metal_simple"
+# path = "test_crane_metal_simple.rs"
+
+# [[bin]]
+# name = "test_bert_metal"
+# path = "test_bert_metal.rs"
+
+# [[bin]]
+# name = "test_llama_cpp_metal"
+# path = "test_llama_cpp_metal.rs"
+
+# [[bin]]
+# name = "test_llama_cpp_simple"
+# path = "test_llama_cpp_simple.rs"

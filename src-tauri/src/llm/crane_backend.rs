@@ -1,12 +1,40 @@
 use crate::error::{AppError, Result};
-use candle_core::{Device, Tensor};
+use candle_core::{Device, Tensor, DType};
 use candle_transformers::models::quantized_llama::{ModelWeights as QLlamaWeights};
+use candle_transformers::models::llama as model;
+use candle_nn::VarBuilder;
 use hf_hub::{api::tokio::Api, Repo, RepoType};
 use tokenizers::Tokenizer;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use rand::Rng;
+use serde::Deserialize;
+
+enum ModelType {
+    Quantized(QLlamaWeights),
+    Standard {
+        model: model::Llama,
+        cache: model::Cache,
+    },
+}
+
+#[derive(Deserialize)]
+struct LlamaConfigJson {
+    hidden_size: usize,
+    intermediate_size: usize,
+    vocab_size: usize,
+    num_hidden_layers: usize,
+    num_attention_heads: usize,
+    num_key_value_heads: Option<usize>,
+    max_position_embeddings: usize,
+    rms_norm_eps: f64,
+    rope_theta: Option<f32>,
+    bos_token_id: Option<u32>,
+    eos_token_id: Option<u32>,
+    tie_word_embeddings: Option<bool>,
+    use_flash_attn: Option<bool>,
+}
 
 pub struct CraneBackend {
     model_id: String,
@@ -14,12 +42,13 @@ pub struct CraneBackend {
     cache_dir: PathBuf,
     device: Device,
     device_type: String,
-    model: Arc<Mutex<Option<QLlamaWeights>>>,
+    model: Arc<Mutex<Option<ModelType>>>,
     tokenizer: Option<Tokenizer>,
     eos_token_id: Option<u32>,
     temperature: f64,
     top_p: f64,
     seed: u64,
+    use_quantized: bool,
 }
 
 impl CraneBackend {
@@ -33,23 +62,31 @@ impl CraneBackend {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| AppError::Llm(format!("Failed to create cache dir: {}", e)))?;
         
-        // For GGUF models, we need to use CPU due to Metal limitations with quantized operations
-        // Metal doesn't support rms-norm and other operations needed for quantized models
-        let (device, device_type) = if cfg!(target_os = "macos") && false {  // Disabled for now
+        // Check if we want to use Metal
+        let use_metal = std::env::var("CANDLE_USE_METAL")
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        
+        // For now, always use CPU due to Metal's lack of rms-norm support
+        // Keep the Metal detection for future when support is added
+        let (device, device_type, use_quantized) = if cfg!(target_os = "macos") && use_metal {
             match Device::new_metal(0) {
-                Ok(metal_device) => {
-                    println!("[CraneBackend] Successfully initialized Metal device");
-                    println!("[CraneBackend] WARNING: Metal may not support all operations for quantized models");
-                    (metal_device, "Metal".to_string())
+                Ok(_metal_device) => {
+                    println!("[CraneBackend] ✓ Metal device detected");
+                    println!("[CraneBackend] ⚠️  Metal lacks rms-norm support for Llama models");
+                    println!("[CraneBackend] → Using CPU with quantized models instead");
+                    // TODO: Enable Metal when rms-norm is implemented
+                    // For now, always use CPU with quantized models
+                    (Device::Cpu, "CPU (Metal available but not supported)".to_string(), true)
                 }
                 Err(e) => {
-                    println!("[CraneBackend] Metal initialization failed: {}, falling back to CPU", e);
-                    (Device::Cpu, "CPU".to_string())
+                    println!("[CraneBackend] Metal not available: {}", e);
+                    (Device::Cpu, "CPU".to_string(), true)
                 }
             }
         } else {
-            println!("[CraneBackend] Using CPU for quantized model compatibility");
-            (Device::Cpu, "CPU".to_string())
+            println!("[CraneBackend] Using CPU with quantized models");
+            (Device::Cpu, "CPU".to_string(), true)
         };
         
         println!("[CraneBackend] Using device: {}", device_type);
@@ -66,6 +103,7 @@ impl CraneBackend {
             temperature: 0.7, // More creative than Candle's default
             top_p: 0.9,
             seed: rand::thread_rng().gen(), // Random seed for variety
+            use_quantized,
         };
         
         // Try to load the model
@@ -75,9 +113,20 @@ impl CraneBackend {
                 println!("[CraneBackend] Model loaded: {}", backend.model.lock().unwrap().is_some());
                 println!("[CraneBackend] Tokenizer loaded: {}", backend.tokenizer.is_some());
                 println!("[CraneBackend] Device: {}", backend.device_type);
+                
+                // Double check that both model and tokenizer are loaded
+                if backend.model.lock().unwrap().is_none() || backend.tokenizer.is_none() {
+                    eprintln!("[CraneBackend] ERROR: Model or tokenizer is None after successful load!");
+                    eprintln!("[CraneBackend] Model: {:?}, Tokenizer: {:?}", 
+                        backend.model.lock().unwrap().is_some(), 
+                        backend.tokenizer.is_some()
+                    );
+                    return Err(AppError::Llm("Model initialization incomplete".into()));
+                }
             }
             Err(e) => {
                 eprintln!("[CraneBackend] Failed to load model on {}: {}", backend.device_type, e);
+                eprintln!("[CraneBackend] Full error: {:?}", e);
                 
                 // Check if it's a Metal-specific error
                 let error_str = format!("{}", e);
@@ -93,12 +142,13 @@ impl CraneBackend {
                     
                     if let Err(cpu_err) = backend.load_model().await {
                         eprintln!("[CraneBackend] Failed to load model on CPU: {}", cpu_err);
-                        eprintln!("[CraneBackend] Will use placeholder responses");
+                        eprintln!("[CraneBackend] Full CPU error: {:?}", cpu_err);
+                        return Err(cpu_err); // Return error instead of using broken backend
                     } else {
                         println!("[CraneBackend] Model loaded successfully on CPU fallback");
                     }
                 } else {
-                    eprintln!("[CraneBackend] Will use placeholder responses");
+                    return Err(e); // Return error instead of using broken backend
                 }
             }
         }
@@ -108,11 +158,24 @@ impl CraneBackend {
     
     async fn load_model(&mut self) -> Result<()> {
         println!("[CraneBackend] Loading model: {}", self.model_id);
+        println!("[CraneBackend] Cache directory: {:?}", self.cache_dir);
+        println!("[CraneBackend] Use quantized: {}", self.use_quantized);
+        
+        if self.use_quantized {
+            self.load_quantized_model().await
+        } else {
+            self.load_standard_model().await
+        }
+    }
+    
+    async fn load_quantized_model(&mut self) -> Result<()> {
+        println!("[CraneBackend] Loading quantized GGUF model...");
         
         // Crane uses optimized GGUF models with better quantization for faster inference
         
         let api = Api::new()
             .map_err(|e| AppError::Llm(format!("Failed to create HF API: {}", e)))?;
+        println!("[CraneBackend] HF API created successfully");
         
         // Map models to their GGUF versions (TheBloke's quantized versions when available)
         let (repo_id, filename, tokenizer_repo) = match self.model_id.as_str() {
@@ -183,13 +246,54 @@ impl CraneBackend {
             "main".to_string(),
         ));
         
-        let tokenizer_path = original_repo.get("tokenizer.json")
-            .await
-            .map_err(|e| AppError::Llm(format!("Failed to download tokenizer: {}", e)))?;
+        // Try to get tokenizer with fallback mechanism
+        let tokenizer_path = match original_repo.get("tokenizer.json").await {
+            Ok(path) => {
+                println!("[CraneBackend] Tokenizer downloaded from original repo");
+                path
+            }
+            Err(e) => {
+                println!("[CraneBackend] Failed to download from original repo: {}, trying manual path", e);
+                
+                // Try manual path construction as fallback
+                // First try the HuggingFace hub cache directory
+                let hf_cache_dir = dirs::home_dir()
+                    .unwrap()
+                    .join(".cache")
+                    .join("huggingface")
+                    .join("hub");
+                
+                let manual_path = hf_cache_dir.join(format!("models--{}", tokenizer_repo.replace("/", "--")))
+                    .join("snapshots")
+                    .join("main")
+                    .join("tokenizer.json");
+                
+                if manual_path.exists() {
+                    println!("[CraneBackend] Found tokenizer at manual path: {:?}", manual_path);
+                    manual_path
+                } else {
+                    println!("[CraneBackend] Tokenizer not found at manual path: {:?}", manual_path);
+                    // Try downloading from GGUF repo as last resort
+                    println!("[CraneBackend] Trying GGUF repo as fallback");
+                    repo.get("tokenizer.json").await
+                        .map_err(|e2| {
+                            eprintln!("[CraneBackend] GGUF tokenizer download also failed: {}", e2);
+                            AppError::Llm(format!(
+                                "Failed to download tokenizer from both repos. Original: {}, GGUF: {}", e, e2
+                            ))
+                        })?
+                }
+            }
+        };
         
         // Load tokenizer
+        println!("[CraneBackend] Loading tokenizer from: {:?}", tokenizer_path);
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| AppError::Llm(format!("Failed to load tokenizer: {}", e)))?;
+            .map_err(|e| {
+                eprintln!("[CraneBackend] Failed to load tokenizer from {:?}: {}", tokenizer_path, e);
+                AppError::Llm(format!("Failed to load tokenizer: {}", e))
+            })?;
+        println!("[CraneBackend] Tokenizer loaded successfully");
         
         // Set EOS token based on model type
         let eos_token_id = match self.model_id.as_str() {
@@ -226,22 +330,205 @@ impl CraneBackend {
         println!("[CraneBackend] Model architecture: {}", arch);
         
         // Create the model from GGUF content
-        // TODO: Support different architectures (qwen2, phi, etc.)
-        let model_weights = match arch.as_str() {
-            "llama" | "qwen" | "qwen2" | "phi" | _ => {
-                // For now, use QLlamaWeights for all architectures
-                // In a real implementation, we'd have different weight loaders
-                QLlamaWeights::from_gguf(model_content, &mut reader, &self.device)
-                    .map_err(|e| AppError::Llm(format!("Failed to load model weights: {}", e)))?
+        println!("[CraneBackend] Attempting to load GGUF model on {}", self.device_type);
+        
+        // Try loading with current device
+        let load_result = QLlamaWeights::from_gguf(model_content, &mut reader, &self.device);
+        
+        let model_weights = match load_result {
+            Ok(weights) => {
+                println!("[CraneBackend] ✓ Model loaded successfully on {}", self.device_type);
+                weights
+            }
+            Err(e) if !self.device.is_cpu() => {
+                println!("[CraneBackend] ✗ Failed to load on {}: {}", self.device_type, e);
+                
+                // Check if it's a Metal-specific error
+                let error_str = format!("{}", e);
+                if error_str.contains("Metal error") || error_str.contains("rms-norm") {
+                    println!("[CraneBackend] Metal doesn't support this operation for quantized models");
+                }
+                
+                println!("[CraneBackend] → Attempting CPU fallback...");
+                
+                // Reopen the file for CPU fallback
+                let mut file = std::fs::File::open(&model_path)
+                    .map_err(|e| AppError::Llm(format!("Failed to reopen model file: {}", e)))?;
+                let mut reader = std::io::BufReader::new(&mut file);
+                
+                // Re-read GGUF content
+                let model_content = candle_core::quantized::gguf_file::Content::read(&mut reader)
+                    .map_err(|e| AppError::Llm(format!("Failed to re-parse GGUF file: {}", e)))?;
+                
+                // Update device to CPU
+                self.device = Device::Cpu;
+                self.device_type = "CPU (fallback)".to_string();
+                
+                QLlamaWeights::from_gguf(model_content, &mut reader, &Device::Cpu)
+                    .map_err(|cpu_err| AppError::Llm(format!(
+                        "Failed to load model on both Metal and CPU. Metal error: {}, CPU error: {}", 
+                        e, cpu_err
+                    )))?
+            }
+            Err(e) => return Err(AppError::Llm(format!("Failed to load model weights on CPU: {}", e)))
+        };
+        
+        println!("[CraneBackend] Storing model weights...");
+        *self.model.lock().unwrap() = Some(ModelType::Quantized(model_weights));
+        println!("[CraneBackend] Model weights stored");
+        
+        println!("[CraneBackend] Storing tokenizer...");
+        self.tokenizer = Some(tokenizer);
+        self.eos_token_id = eos_token_id;
+        
+        println!("[CraneBackend] Final state check:");
+        println!("[CraneBackend]   Model loaded: {}", self.model.lock().unwrap().is_some());
+        println!("[CraneBackend]   Tokenizer loaded: {}", self.tokenizer.is_some());
+        println!("[CraneBackend]   EOS token ID: {:?}", self.eos_token_id);
+        println!("[CraneBackend] Model loaded successfully on {}", self.device_type);
+        
+        Ok(())
+    }
+    
+    async fn load_standard_model(&mut self) -> Result<()> {
+        println!("[CraneBackend] Loading non-quantized model for Metal support...");
+        
+        let api = Api::new()
+            .map_err(|e| AppError::Llm(format!("Failed to create HF API: {}", e)))?;
+        
+        // For non-quantized models, we load the standard safetensors
+        let (model_files, config_file, tokenizer_repo) = match self.model_id.as_str() {
+            "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => (
+                vec!["model.safetensors"],
+                "config.json",
+                "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+            ),
+            _ => {
+                // For now, only support TinyLlama in non-quantized mode
+                println!("[CraneBackend] Model {} not configured for non-quantized mode, falling back to TinyLlama", self.model_id);
+                self.model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0".to_string();
+                (
+                    vec!["model.safetensors"],
+                    "config.json",
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+                )
             }
         };
         
-        *self.model.lock().unwrap() = Some(model_weights);
+        let repo = api.repo(Repo::with_revision(
+            self.model_id.clone(),
+            RepoType::Model,
+            "main".to_string(),
+        ));
+        
+        // Download config
+        println!("[CraneBackend] Downloading config...");
+        let config_path = repo.get(config_file).await
+            .map_err(|e| AppError::Llm(format!("Failed to download config: {}", e)))?;
+        
+        // Download model files
+        println!("[CraneBackend] Downloading model files...");
+        let mut model_paths = Vec::new();
+        for file in model_files {
+            let path = repo.get(file).await
+                .map_err(|e| AppError::Llm(format!("Failed to download {}: {}", file, e)))?;
+            model_paths.push(path);
+        }
+        
+        // Download tokenizer
+        println!("[CraneBackend] Downloading tokenizer...");
+        let tokenizer_path = match repo.get("tokenizer.json").await {
+            Ok(path) => {
+                println!("[CraneBackend] Tokenizer downloaded successfully");
+                path
+            }
+            Err(e) => {
+                println!("[CraneBackend] Failed to download tokenizer: {}, trying fallback", e);
+                
+                // Try manual path construction as fallback
+                let hf_cache_dir = dirs::home_dir()
+                    .unwrap()
+                    .join(".cache")
+                    .join("huggingface")
+                    .join("hub");
+                
+                let manual_path = hf_cache_dir.join(format!("models--{}", tokenizer_repo.replace("/", "--")))
+                    .join("snapshots")
+                    .join("main")
+                    .join("tokenizer.json");
+                
+                if manual_path.exists() {
+                    println!("[CraneBackend] Found tokenizer at manual path");
+                    manual_path
+                } else {
+                    return Err(AppError::Llm(format!("Failed to download tokenizer: {}", e)));
+                }
+            }
+        };
+        
+        // Load tokenizer
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| AppError::Llm(format!("Failed to load tokenizer: {}", e)))?;
+        
+        // Set EOS token
+        let eos_token_id = tokenizer.token_to_id("</s>")
+            .or_else(|| tokenizer.token_to_id("<|endoftext|>"));
         
         self.tokenizer = Some(tokenizer);
         self.eos_token_id = eos_token_id;
         
-        println!("[CraneBackend] Model loaded successfully on {}", self.device_type);
+        // Load config
+        let config_str = std::fs::read_to_string(&config_path)
+            .map_err(|e| AppError::Llm(format!("Failed to read config: {}", e)))?;
+        let config_json: LlamaConfigJson = serde_json::from_str(&config_str)
+            .map_err(|e| AppError::Llm(format!("Failed to parse config: {}", e)))?;
+        
+        // Convert to candle config
+        let config = model::Config {
+            hidden_size: config_json.hidden_size,
+            intermediate_size: config_json.intermediate_size,
+            vocab_size: config_json.vocab_size,
+            num_hidden_layers: config_json.num_hidden_layers,
+            num_attention_heads: config_json.num_attention_heads,
+            num_key_value_heads: config_json.num_key_value_heads.unwrap_or(config_json.num_attention_heads),
+            max_position_embeddings: config_json.max_position_embeddings,
+            rms_norm_eps: config_json.rms_norm_eps,
+            rope_theta: config_json.rope_theta.unwrap_or(10000.0),
+            bos_token_id: config_json.bos_token_id,
+            eos_token_id: config_json.eos_token_id.map(|id| model::LlamaEosToks::Single(id)),
+            rope_scaling: None,
+            tie_word_embeddings: config_json.tie_word_embeddings.unwrap_or(false),
+            use_flash_attn: config_json.use_flash_attn.unwrap_or(false),
+        };
+        
+        println!("[CraneBackend] Config loaded: hidden_size={}, num_attention_heads={}", 
+            config.hidden_size, config.num_attention_heads);
+        
+        // Load model weights
+        println!("[CraneBackend] Loading model weights on {:?}...", self.device);
+        let dtype = if self.device.is_cuda() || self.device.is_metal() {
+            DType::F32 // Use F32 for GPU/Metal
+        } else {
+            DType::F32 // Use F32 for CPU as well for non-quantized
+        };
+        
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&model_paths, dtype, &self.device)
+                .map_err(|e| AppError::Llm(format!("Failed to load weights: {}", e)))?
+        };
+        
+        // Create the model
+        let model = model::Llama::load(vb, &config)
+            .map_err(|e| AppError::Llm(format!("Failed to create model: {}", e)))?;
+        
+        // Create cache
+        let cache = model::Cache::new(false, DType::F32, &config, &self.device)
+            .map_err(|e| AppError::Llm(format!("Failed to create cache: {}", e)))?;
+        
+        println!("[CraneBackend] Storing non-quantized model...");
+        *self.model.lock().unwrap() = Some(ModelType::Standard { model, cache });
+        
+        println!("[CraneBackend] Non-quantized model loaded successfully on {}!", self.device_type);
         
         Ok(())
     }
@@ -319,8 +606,12 @@ impl CraneBackend {
             let input = input.unsqueeze(0)
                 .map_err(|e| AppError::Llm(format!("Failed to unsqueeze tensor: {}", e)))?;
             
-            let logits = model.forward(&input, pos)
-                .map_err(|e| AppError::Llm(format!("Model forward pass failed at position {}: {}", pos, e)))?;
+            let logits = match model {
+                ModelType::Quantized(m) => m.forward(&input, pos)
+                    .map_err(|e| AppError::Llm(format!("Model forward pass failed at position {}: {}", pos, e)))?,
+                ModelType::Standard { model: m, cache } => m.forward(&input, pos, cache)
+                    .map_err(|e| AppError::Llm(format!("Model forward pass failed at position {}: {}", pos, e)))?,
+            };
             
             last_logits = Some(logits);
         }
@@ -356,12 +647,20 @@ impl CraneBackend {
                     .unsqueeze(0)
                     .map_err(|e| AppError::Llm(format!("Failed to unsqueeze: {}", e)))?;
                 
-                let logits = model.forward(&input, tokens.len() + gen_pos)
-                    .map_err(|e| AppError::Llm(format!("Forward pass failed: {}", e)))?
-                    .squeeze(0)
-                    .map_err(|e| AppError::Llm(format!("Failed to squeeze: {}", e)))?
-                    .squeeze(0)
-                    .map_err(|e| AppError::Llm(format!("Failed to squeeze: {}", e)))?;
+                let logits = match model {
+                    ModelType::Quantized(m) => m.forward(&input, tokens.len() + gen_pos)
+                        .map_err(|e| AppError::Llm(format!("Forward pass failed: {}", e)))?
+                        .squeeze(0)
+                        .map_err(|e| AppError::Llm(format!("Failed to squeeze: {}", e)))?
+                        .squeeze(0)
+                        .map_err(|e| AppError::Llm(format!("Failed to squeeze: {}", e)))?,
+                    ModelType::Standard { model: m, cache } => m.forward(&input, tokens.len() + gen_pos, cache)
+                        .map_err(|e| AppError::Llm(format!("Forward pass failed: {}", e)))?
+                        .squeeze(0)
+                        .map_err(|e| AppError::Llm(format!("Failed to squeeze: {}", e)))?
+                        .squeeze(0)
+                        .map_err(|e| AppError::Llm(format!("Failed to squeeze: {}", e)))?,
+                };
                 
                 current_token = logits_processor.sample(&logits)
                     .map_err(|e| AppError::Llm(format!("Failed to sample: {}", e)))?;

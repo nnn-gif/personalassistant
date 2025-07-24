@@ -15,12 +15,18 @@ use crane_backend::CraneBackend;
 mod callm_backend;
 use callm_backend::CallmBackend;
 
+mod bert_metal_backend;
+
+pub mod llama_cpp_metal_backend;
+use llama_cpp_metal_backend::LlamaCppMetalBackend;
+
 pub struct LlmClient {
     model_name: String,
     inference_provider: InferenceProvider,
     candle_backend: Option<CandleBackend>,
     crane_backend: Option<CraneBackend>,
     callm_backend: Option<CallmBackend>,
+    llama_cpp_backend: Option<LlamaCppMetalBackend>,
 }
 
 impl LlmClient {
@@ -35,6 +41,7 @@ impl LlmClient {
             candle_backend: None,
             crane_backend: None,
             callm_backend: None,
+            llama_cpp_backend: None,
         }
     }
     
@@ -136,6 +143,32 @@ impl LlmClient {
                 self.candle_backend = None;
                 self.crane_backend = None;
             }
+            InferenceProvider::LlamaCpp => {
+                // Initialize LlamaCpp backend if needed
+                if self.llama_cpp_backend.is_none() {
+                    let config = Config::get();
+                    let model_id = model_id.as_ref().unwrap_or(&config.services.candle_model_id);
+                    
+                    println!("[LlmClient] Initializing LlamaCpp backend with model: {}", model_id);
+                    match LlamaCppMetalBackend::new(
+                        model_id,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        Ok(backend) => {
+                            println!("[LlmClient] LlamaCpp backend initialized successfully");
+                            self.llama_cpp_backend = Some(backend);
+                        }
+                        Err(e) => {
+                            eprintln!("[LlmClient] Failed to initialize LlamaCpp backend: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                // Clear other backends
+                self.candle_backend = None;
+                self.crane_backend = None;
+                self.callm_backend = None;
+            }
         }
         
         println!("[LlmClient] Inference provider updated successfully");
@@ -146,7 +179,7 @@ impl LlmClient {
         let config = Config::get();
         
         // Initialize appropriate backend based on provider
-        let (candle_backend, crane_backend, callm_backend) = match config.services.inference_provider {
+        let (candle_backend, crane_backend, callm_backend, llama_cpp_backend) = match config.services.inference_provider {
             InferenceProvider::Candle => {
                 println!("[LlmClient] Initializing Candle backend...");
                 match CandleBackend::new(
@@ -156,12 +189,12 @@ impl LlmClient {
                 ).await {
                     Ok(backend) => {
                         println!("[LlmClient] Candle backend initialized successfully");
-                        (Some(backend), None, None)
+                        (Some(backend), None, None, None)
                     }
                     Err(e) => {
                         eprintln!("[LlmClient] Failed to initialize Candle backend: {}", e);
                         eprintln!("[LlmClient] Falling back to Ollama");
-                        (None, None, None)
+                        (None, None, None, None)
                     }
                 }
             }
@@ -173,12 +206,12 @@ impl LlmClient {
                 ).await {
                     Ok(backend) => {
                         println!("[LlmClient] Crane backend initialized successfully");
-                        (None, Some(backend), None)
+                        (None, Some(backend), None, None)
                     }
                     Err(e) => {
                         eprintln!("[LlmClient] Failed to initialize Crane backend: {}", e);
                         eprintln!("[LlmClient] Falling back to Ollama");
-                        (None, None, None)
+                        (None, None, None, None)
                     }
                 }
             }
@@ -190,16 +223,33 @@ impl LlmClient {
                 ).await {
                     Ok(backend) => {
                         println!("[LlmClient] Callm backend initialized successfully");
-                        (None, None, Some(backend))
+                        (None, None, Some(backend), None)
                     }
                     Err(e) => {
                         eprintln!("[LlmClient] Failed to initialize Callm backend: {}", e);
                         eprintln!("[LlmClient] Falling back to Ollama");
-                        (None, None, None)
+                        (None, None, None, None)
                     }
                 }
             }
-            _ => (None, None, None),
+            InferenceProvider::LlamaCpp => {
+                println!("[LlmClient] Initializing LlamaCpp backend...");
+                match LlamaCppMetalBackend::new(
+                    &config.services.candle_model_id,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] LlamaCpp backend initialized successfully");
+                        (None, None, None, Some(backend))
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize LlamaCpp backend: {}", e);
+                        eprintln!("[LlmClient] Falling back to Ollama");
+                        (None, None, None, None)
+                    }
+                }
+            }
+            _ => (None, None, None, None),
         };
         
         Self {
@@ -208,6 +258,7 @@ impl LlmClient {
             candle_backend,
             crane_backend,
             callm_backend,
+            llama_cpp_backend,
         }
     }
     
@@ -261,6 +312,22 @@ impl LlmClient {
                     }
                     Err(e) => {
                         eprintln!("[LlmClient] Failed to initialize Callm backend: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            InferenceProvider::LlamaCpp if self.llama_cpp_backend.is_none() => {
+                println!("[LlmClient] Late initialization of LlamaCpp backend...");
+                match LlamaCppMetalBackend::new(
+                    &config.services.candle_model_id,
+                    PathBuf::from(&config.services.candle_cache_dir),
+                ).await {
+                    Ok(backend) => {
+                        println!("[LlmClient] LlamaCpp backend initialized successfully");
+                        self.llama_cpp_backend = Some(backend);
+                    }
+                    Err(e) => {
+                        eprintln!("[LlmClient] Failed to initialize LlamaCpp backend: {}", e);
                         return Err(e);
                     }
                 }
@@ -554,6 +621,25 @@ impl LlmClient {
                     }
                 }
             }
+            InferenceProvider::LlamaCpp => {
+                if let Some(llama_cpp) = &self.llama_cpp_backend {
+                    println!("[LLM] Using LlamaCpp backend for inference with Metal support");
+                    println!("[LLM] LlamaCpp model: {}", config.services.candle_model_id);
+                    return llama_cpp.generate(prompt, 500).await; // Max 500 tokens
+                } else {
+                    println!("[LLM] LlamaCpp backend not available, initializing...");
+                    // Try to initialize LlamaCpp backend on demand
+                    if let Ok(backend) = LlamaCppMetalBackend::new(
+                        &config.services.candle_model_id,
+                        PathBuf::from(&config.services.candle_cache_dir),
+                    ).await {
+                        println!("[LLM] LlamaCpp backend initialized successfully");
+                        return backend.generate(prompt, 500).await;
+                    } else {
+                        println!("[LLM] Failed to initialize LlamaCpp backend, falling back to Ollama");
+                    }
+                }
+            }
             _ => {}
         }
         
@@ -689,6 +775,14 @@ impl LlmClient {
             }
             InferenceProvider::Ollama => {
                 ("Ollama", self.model_name.clone())
+            }
+            InferenceProvider::LlamaCpp => {
+                let model = match config.services.candle_model_id.as_str() {
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => "TinyLlama 1.1B (LlamaCpp/Metal)",
+                    "Qwen/Qwen2.5-0.5B-Instruct" => "Qwen2.5 0.5B (LlamaCpp/Metal)",
+                    _ => &config.services.candle_model_id,
+                };
+                ("LlamaCpp", model.to_string())
             }
         };
         

@@ -31,6 +31,7 @@ pub enum InferenceProvider {
     Candle,
     Crane,
     Callm,
+    LlamaCpp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +83,7 @@ impl Default for Config {
                     Ok("crane") => InferenceProvider::Crane,
                     Ok("callm") => InferenceProvider::Callm,
                     Ok("ollama") => InferenceProvider::Ollama,
+                    Ok("llama_cpp") => InferenceProvider::LlamaCpp,
                     _ => InferenceProvider::Callm, // Default to Callm
                 },
                 candle_model_id: std::env::var("CANDLE_MODEL_ID")

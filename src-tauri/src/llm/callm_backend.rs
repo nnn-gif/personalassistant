@@ -142,15 +142,50 @@ impl CallmBackend {
             .map_err(|e| AppError::Llm(format!("Failed to download model {}: {}", filename, e)))?;
         println!("[CallmBackend] Model downloaded to: {:?}", model_path);
         
-        // Download tokenizer
-        let tokenizer_repo = api.repo(Repo::with_revision(
-            tokenizer_repo.to_string(),
-            RepoType::Model,
-            "main".to_string(),
-        ));
-        
-        let tokenizer_path = tokenizer_repo.get("tokenizer.json").await
-            .map_err(|e| AppError::Llm(format!("Failed to download tokenizer: {}", e)))?;
+        // Download tokenizer - try from original repo first, then GGUF repo as fallback
+        println!("[CallmBackend] Downloading tokenizer from: {}", tokenizer_repo);
+        let tokenizer_path = {
+            let tokenizer_api_repo = api.repo(Repo::with_revision(
+                tokenizer_repo.to_string(),
+                RepoType::Model,
+                "main".to_string(),
+            ));
+            
+            match tokenizer_api_repo.get("tokenizer.json").await {
+                Ok(path) => {
+                    println!("[CallmBackend] Tokenizer downloaded from original repo");
+                    path
+                }
+                Err(e) => {
+                    println!("[CallmBackend] Failed to download from original repo: {}, trying manual path", e);
+                    
+                    // Try manual path construction as fallback
+                    // First try the HuggingFace hub cache directory
+                    let hf_cache_dir = dirs::home_dir()
+                        .unwrap()
+                        .join(".cache")
+                        .join("huggingface")
+                        .join("hub");
+                    
+                    let manual_path = hf_cache_dir.join(format!("models--{}", tokenizer_repo.replace("/", "--")))
+                        .join("snapshots")
+                        .join("main")
+                        .join("tokenizer.json");
+                    
+                    if manual_path.exists() {
+                        println!("[CallmBackend] Found tokenizer at manual path: {:?}", manual_path);
+                        manual_path
+                    } else {
+                        // Try downloading from GGUF repo as last resort
+                        println!("[CallmBackend] Trying GGUF repo as fallback");
+                        repo.get("tokenizer.json").await
+                            .map_err(|e2| AppError::Llm(format!(
+                                "Failed to download tokenizer from both repos. Original: {}, GGUF: {}", e, e2
+                            )))?
+                    }
+                }
+            }
+        };
         
         // Load tokenizer
         println!("[CallmBackend] Loading tokenizer from: {:?}", tokenizer_path);

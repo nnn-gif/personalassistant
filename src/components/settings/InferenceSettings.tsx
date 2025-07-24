@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { motion } from 'framer-motion'
-import { Cpu, Cloud, Download, CheckCircle, AlertCircle, Zap } from 'lucide-react'
+import { Cpu, Cloud, Download, CheckCircle, AlertCircle, Zap, HardDrive } from 'lucide-react'
 
 interface InferenceConfig {
   provider: string
@@ -151,7 +151,7 @@ export default function InferenceSettings() {
     setSaving(true)
     setSaveSuccess(false)
     try {
-      const modelId = selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm' ? selectedCandleModel : ollamaModel
+      const modelId = selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm' || selectedProvider === 'LlamaCpp' ? selectedCandleModel : ollamaModel
       await invoke('set_inference_provider', {
         provider: selectedProvider,
         modelId
@@ -185,7 +185,7 @@ export default function InferenceSettings() {
       const downloadedModel = models.find(m => m.id === modelId)
       if (downloadedModel?.downloaded) {
         // Auto-select the downloaded model if it's now available
-        if (selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm') {
+        if (selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm' || selectedProvider === 'LlamaCpp') {
           setSelectedCandleModel(modelId)
         }
       }
@@ -220,6 +220,8 @@ export default function InferenceSettings() {
               <Zap className="w-4 h-4 text-primary" />
             ) : inferenceInfo.provider === 'Callm' ? (
               <Zap className="w-4 h-4 text-primary" />
+            ) : inferenceInfo.provider === 'LlamaCpp' ? (
+              <HardDrive className="w-4 h-4 text-primary" />
             ) : (
               <Cloud className="w-4 h-4 text-primary" />
             )}
@@ -260,7 +262,7 @@ export default function InferenceSettings() {
       {/* Provider Selection */}
       <div className="mb-6">
         <label className="block text-sm font-medium mb-3">Inference Provider</label>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => handleProviderChange('Ollama')}
@@ -316,11 +318,25 @@ export default function InferenceSettings() {
             <p className="font-medium">Callm</p>
             <p className="text-xs text-gray-400 mt-1">Hardware accelerated</p>
           </motion.button>
+          
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => handleProviderChange('LlamaCpp')}
+            className={`p-4 rounded-lg border-2 transition-all ${
+              selectedProvider === 'LlamaCpp'
+                ? 'border-primary bg-primary/10'
+                : 'border-gray-700 hover:border-gray-600'
+            }`}
+          >
+            <HardDrive className="w-6 h-6 mb-2 mx-auto" />
+            <p className="font-medium">LlamaCpp</p>
+            <p className="text-xs text-gray-400 mt-1">Metal optimized</p>
+          </motion.button>
         </div>
       </div>
 
       {/* Model Status Summary */}
-      {(selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm') && (
+      {(selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm' || selectedProvider === 'LlamaCpp') && (
         <div className="mb-4 p-3 bg-dark-bg rounded-lg">
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-400">
@@ -337,7 +353,7 @@ export default function InferenceSettings() {
       )}
 
       {/* Model Selection */}
-      {(selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm') ? (
+      {(selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm' || selectedProvider === 'LlamaCpp') ? (
         <div className="mb-6">
           <label className="block text-sm font-medium mb-3">{selectedProvider} Model</label>
           <div className="space-y-3">
@@ -474,6 +490,8 @@ export default function InferenceSettings() {
                 ? 'Crane provides optimized inference. Download models before use.'
                 : selectedProvider === 'Callm'
                 ? 'Callm provides hardware-accelerated inference with automatic device selection.'
+                : selectedProvider === 'LlamaCpp'
+                ? 'LlamaCpp provides full Metal support for Apple Silicon with optimized performance.'
                 : 'Ollama requires the Ollama service to be running on your system.'
               }
             </p>
@@ -482,7 +500,7 @@ export default function InferenceSettings() {
       </div>
       
       {/* Model Download Warning */}
-      {(selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm') && selectedCandleModel && (() => {
+      {(selectedProvider === 'Candle' || selectedProvider === 'Crane' || selectedProvider === 'Callm' || selectedProvider === 'LlamaCpp') && selectedCandleModel && (() => {
         const selectedModel = candleModels.find(m => m.id === selectedCandleModel)
         return selectedModel && !selectedModel.downloaded ? (
           <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">

@@ -18,7 +18,7 @@ mod services;
 mod storage;
 
 use init::AppServices;
-use tauri::{generate_context, generate_handler};
+use tauri::{generate_context, generate_handler, Manager};
 
 fn main() {
     // Load .env file if it exists
@@ -54,6 +54,16 @@ fn main() {
             // Start background tasks
             services.spawn_activity_tracking();
             services.spawn_migration();
+            
+            // Show the main window
+            println!("App setup complete");
+            if let Some(window) = app.get_webview_window("main") {
+                println!("Main window found, showing...");
+                window.show().unwrap();
+                window.set_focus().unwrap();
+            } else {
+                println!("Main window not found!");
+            }
 
             Ok(())
         })
@@ -149,6 +159,12 @@ fn main() {
             services::inference::get_config_path,
             services::inference::download_model,
         ])
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { .. } => {
+                println!("Window close requested");
+            }
+            _ => {}
+        })
         .run(generate_context!())
         .expect("error while running tauri application");
 }

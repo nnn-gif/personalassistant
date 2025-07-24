@@ -23,7 +23,7 @@ pub async fn get_inference_config(
         ollama_model: config.services.ollama_model.clone(),
         candle_model_id: config.services.candle_model_id.clone(),
         candle_model_revision: config.services.candle_model_revision.clone(),
-        available_providers: vec!["Ollama".to_string(), "Candle".to_string(), "Crane".to_string(), "Callm".to_string()],
+        available_providers: vec!["Ollama".to_string(), "Candle".to_string(), "Crane".to_string(), "Callm".to_string(), "LlamaCpp".to_string()],
     })
 }
 
@@ -41,6 +41,7 @@ pub async fn set_inference_provider(
         "crane" => InferenceProvider::Crane,
         "callm" => InferenceProvider::Callm,
         "ollama" => InferenceProvider::Ollama,
+        "llamacpp" => InferenceProvider::LlamaCpp,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
     
@@ -79,6 +80,12 @@ pub async fn set_inference_provider(
             std::env::set_var("INFERENCE_PROVIDER", "ollama");
             if let Some(id) = &model_id {
                 std::env::set_var("OLLAMA_MODEL", id);
+            }
+        }
+        "llamacpp" => {
+            std::env::set_var("INFERENCE_PROVIDER", "llamacpp");
+            if let Some(id) = &model_id {
+                std::env::set_var("CANDLE_MODEL_ID", id); // LlamaCpp also uses model_id
             }
         }
         _ => {}
