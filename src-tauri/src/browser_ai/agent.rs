@@ -316,28 +316,41 @@ impl BrowserAIAgent {
         // Try to use LLM for intelligent planning
         let prompt = format!(
             "Create a research plan for the following query: '{query}'\n\n\
-            Analyze the query and return a JSON object with:\n\
+            Analyze the query and break it down into multiple focused search tasks.\n\
+            Return a JSON object with:\n\
             1. main_topic: The main topic being researched\n\
             2. category: Category (e.g., 'technical', 'academic', 'news', 'product', 'general')\n\
             3. subtopics: Array of 3-5 specific subtopics to research\n\
-            4. search_queries: Array of optimized search queries\n\
+            4. search_queries: Array of 3-5 DIFFERENT optimized search queries (MUST have at least 3)\n\
             5. requires_browser: Boolean indicating if interactive browser is needed\n\n\
-            Format your response as JSON:\n\
+            IMPORTANT: You MUST provide at least 3 different search queries to cover different aspects.\n\n\
+            Example format:\n\
             {{\n\
-              \"main_topic\": \"...\",\n\
-              \"category\": \"...\",\n\
-              \"subtopics\": [\"...\"],\n\
-              \"search_queries\": [\"...\"],\n\
+              \"main_topic\": \"Machine Learning Algorithms\",\n\
+              \"category\": \"technical\",\n\
+              \"subtopics\": [\"supervised learning\", \"unsupervised learning\", \"neural networks\"],\n\
+              \"search_queries\": [\n\
+                \"machine learning algorithms comparison 2024\",\n\
+                \"supervised vs unsupervised learning examples\",\n\
+                \"neural network architectures guide\",\n\
+                \"best ML algorithms for beginners\"\n\
+              ],\n\
               \"requires_browser\": false\n\
-            }}"
+            }}\n\n\
+            Now create a plan for: '{query}'"
         );
 
         match self.llm_client.send_request(&prompt).await {
             Ok(response) => {
+                println!("[Research Plan] LLM Response: {}", response);
                 match serde_json::from_str::<ResearchPlan>(&self.extract_json(&response)?) {
-                    Ok(plan) => Ok(plan),
+                    Ok(plan) => {
+                        println!("[Research Plan] Successfully parsed plan with {} search queries", plan.search_queries.len());
+                        Ok(plan)
+                    },
                     Err(e) => {
                         println!("Failed to parse LLM response, using fallback: {e}");
+                        println!("Response was: {}", response);
                         Ok(self.create_fallback_plan(query))
                     }
                 }
