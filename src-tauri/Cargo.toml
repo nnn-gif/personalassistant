@@ -51,7 +51,6 @@ walkdir = "2.4"
 mime_guess = "2.0"
 toml = "0.8"
 # Local inference with Candle
-candle-core = { version = "0.9.1", features = ["metal"] }
 candle-nn = "0.9.1"
 candle-transformers = "0.9.1"
 tokenizers = { version = "0.20", features = ["http"] }
@@ -63,10 +62,10 @@ rand = "0.8"
 # callm = { version = "0.2", features = ["metal"] } # Temporarily disabled due to version conflicts
 # Simplified approach - use system tools and enhanced Ollama
 # vosk = "0.3.1"  # Commented out due to native library dependencies
-# LLama.cpp bindings with full Metal support
-llama_cpp = { version = "0.3", features = ["metal"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+candle-core = { version = "0.9.1", features = ["metal"] }
+llama_cpp = { version = "0.3", features = ["metal"] }
 objc = "0.2"
 objc-foundation = "0.1"
 cocoa = "0.26"
@@ -75,6 +74,17 @@ core-foundation = "0.10"
 objc2 = "0.5"
 objc2-foundation = { version = "0.2", features = ["NSString", "NSDate", "NSArray", "NSBundle"] }
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSApplication"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Try CUDA first, fallback to CPU if not available
+candle-core = { version = "0.9.1", features = ["cuda"] }
+llama_cpp = { version = "0.3", features = ["cuda"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux can use CUDA or CPU
+candle-core = { version = "0.9.1", features = ["cuda"] }
+llama_cpp = { version = "0.3", features = ["cuda"] }
+
 # Configuration
 toml = "0.8"
 dotenv = "0.15"

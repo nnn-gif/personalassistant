@@ -1,0 +1,11 @@
+[target.x86_64-pc-windows-msvc]
+# Windows-specific build configurations
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+# Windows ARM64 configurations
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[env]
+# Disable Metal on non-macOS platforms
+CANDLE_USE_METAL = { value = "0", condition = { not = { target_os = "macos" } } }
