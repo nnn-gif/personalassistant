@@ -32,12 +32,25 @@ jobs:
             target: 'x86_64-pc-windows-msvc'
             arch: 'x64'
             os: 'windows'
+          - platform: 'ubuntu-20.04'
+            args: '--target x86_64-unknown-linux-gnu'
+            target: 'x86_64-unknown-linux-gnu'
+            arch: 'x64'
+            os: 'linux'
 
     runs-on: ${{ matrix.platform }}
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Install system dependencies (Linux)
+      if: matrix.os == 'linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev \
+          libayatana-appindicator3-dev librsvg2-dev \
+          libasound2-dev libssl-dev
 
     - name: Rust setup
       uses: dtolnay/rust-toolchain@stable
@@ -80,15 +93,28 @@ jobs:
         cd src-tauri/target/${{ matrix.target }}/release/bundle/macos
         zip -r ../../../../../macos-${{ matrix.arch }}.zip *.app
 
+    - name: Prepare release artifacts
+      run: |
+        mkdir -p release-artifacts
+        # Copy platform-specific artifacts to release directory
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi release-artifacts/ 2>/dev/null || true
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe release-artifacts/ 2>/dev/null || true
+        elif [ "${{ matrix.os }}" = "macos" ]; then
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg release-artifacts/ 2>/dev/null || true
+          cp macos-${{ matrix.arch }}.zip release-artifacts/ 2>/dev/null || true
+        elif [ "${{ matrix.os }}" = "linux" ]; then
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb release-artifacts/ 2>/dev/null || true
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage release-artifacts/ 2>/dev/null || true
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm release-artifacts/ 2>/dev/null || true
+        fi
+      shell: bash
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.os }}-${{ matrix.arch }}
-        path: |
-          src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-          src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-          src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
-          macos-${{ matrix.arch }}.zip
+        path: release-artifacts/*
         retention-days: 30
 
   release:
@@ -108,21 +134,101 @@ jobs:
     - name: Show full artifact paths
       run: find artifacts
 
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        
+        # Get version without 'v' prefix
+        VERSION="${{ github.ref_name }}"
+        VERSION="${VERSION#v}"
+        
+        # Rename files with proper versioning
+        for file in artifacts/**/*.dmg; do
+          if [ -f "$file" ]; then
+            arch=$(echo "$file" | grep -o "arm64\|x64" || echo "x64")
+            cp "$file" "release-assets/PersonalAssistant-${VERSION}-macos-${arch}.dmg"
+          fi
+        done
+        
+        for file in artifacts/**/*.zip; do
+          if [ -f "$file" ]; then
+            arch=$(echo "$file" | grep -o "arm64\|x64" || echo "x64")
+            cp "$file" "release-assets/PersonalAssistant-${VERSION}-macos-${arch}.app.zip"
+          fi
+        done
+        
+        for file in artifacts/**/*.msi; do
+          if [ -f "$file" ]; then
+            cp "$file" "release-assets/PersonalAssistant-${VERSION}-windows-x64.msi"
+          fi
+        done
+        
+        for file in artifacts/**/*.exe; do
+          if [ -f "$file" ]; then
+            cp "$file" "release-assets/PersonalAssistant-${VERSION}-windows-x64.exe"
+          fi
+        done
+        
+        for file in artifacts/**/*.deb; do
+          if [ -f "$file" ]; then
+            cp "$file" "release-assets/PersonalAssistant-${VERSION}-linux-x64.deb"
+          fi
+        done
+        
+        for file in artifacts/**/*.AppImage; do
+          if [ -f "$file" ]; then
+            cp "$file" "release-assets/PersonalAssistant-${VERSION}-linux-x64.AppImage"
+          fi
+        done
+        
+        for file in artifacts/**/*.rpm; do
+          if [ -f "$file" ]; then
+            cp "$file" "release-assets/PersonalAssistant-${VERSION}-linux-x64.rpm"
+          fi
+        done
+        
+        ls -la release-assets/
+
+    - name: Generate checksums
+      run: |
+        cd release-assets
+        # Generate SHA256 checksums for all files
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum * > checksums-sha256.txt
+        else
+          # macOS fallback
+          for file in *; do
+            if [ -f "$file" ] && [ "$file" != "checksums-sha256.txt" ]; then
+              shasum -a 256 "$file" >> checksums-sha256.txt
+            fi
+          done
+        fi
+        cat checksums-sha256.txt
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          artifacts/**/*.dmg
-          artifacts/**/*.msi
-          artifacts/**/*.exe
-          artifacts/**/*.zip
+        files: release-assets/*
         body: |
           ## Personal Assistant v${{ github.ref_name }}
 
           ### 📦 Downloads
-          - **macOS (Intel)**: Download `.dmg` or `.zip`
-          - **macOS (Apple Silicon)**: Download `.dmg` or `.zip`
-          - **Windows**: Download `.msi` or `.exe`
+          
+          #### macOS
+          - **Intel (x64)**: `PersonalAssistant-${{ github.ref_name }}-macos-x64.dmg` or `.app.zip`
+          - **Apple Silicon (arm64)**: `PersonalAssistant-${{ github.ref_name }}-macos-arm64.dmg` or `.app.zip`
+          
+          #### Windows
+          - **x64**: `PersonalAssistant-${{ github.ref_name }}-windows-x64.msi` (recommended) or `.exe`
+          
+          #### Linux
+          - **x64**: 
+            - `PersonalAssistant-${{ github.ref_name }}-linux-x64.AppImage` (portable, works on most distributions)
+            - `PersonalAssistant-${{ github.ref_name }}-linux-x64.deb` (Debian/Ubuntu)
+            - `PersonalAssistant-${{ github.ref_name }}-linux-x64.rpm` (Fedora/RHEL)
+          
+          #### Verification
+          - SHA256 checksums are available in `checksums-sha256.txt`
 
           ### 🚀 Features
           - AI-powered document search and chat
