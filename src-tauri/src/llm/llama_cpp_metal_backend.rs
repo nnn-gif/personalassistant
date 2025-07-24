@@ -142,15 +142,36 @@ impl LlamaCppMetalBackend {
         // Apply chat template based on model
         let formatted_prompt = self.apply_chat_template(prompt);
         
+        // Tokenize to check prompt length
+        let tokens = model.tokenize_bytes(formatted_prompt.as_bytes(), true, false)
+            .map_err(|e| AppError::Llm(format!("Failed to tokenize prompt: {}", e)))?;
+        
+        println!("[LlamaCppMetalBackend] Prompt tokens: {}", tokens.len());
+        
         // Create a session for generation
-        let session_params = SessionParams::default();
+        let mut session_params = SessionParams::default();
+        
+        // Set a larger batch size to handle longer prompts
+        session_params.n_batch = 2048; // Increase batch size for longer prompts
+        session_params.n_ctx = 4096;   // Increase context size
         
         // Create a new session
         let mut session = model.create_session(session_params)
             .map_err(|e| AppError::Llm(format!("Failed to create session: {}", e)))?;
         
+        // Truncate prompt if it's too long
+        let final_prompt = if tokens.len() > 2000 {
+            println!("[LlamaCppMetalBackend] Warning: Truncating prompt from {} to ~2000 tokens", tokens.len());
+            // Approximate truncation - take first 75% of the prompt
+            let truncate_at = (formatted_prompt.len() * 3) / 4;
+            let truncated = &formatted_prompt[..truncate_at];
+            format!("{}...", truncated)
+        } else {
+            formatted_prompt
+        };
+        
         // Feed the prompt to the context
-        session.advance_context(formatted_prompt.as_str())
+        session.advance_context(final_prompt.as_str())
             .map_err(|e| AppError::Llm(format!("Failed to process prompt: {}", e)))?;
         
         // Create a sampler with parameters
