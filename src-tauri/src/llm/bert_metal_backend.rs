@@ -7,6 +7,7 @@ use tokenizers::Tokenizer;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+#[allow(dead_code)]
 pub struct BertMetalBackend {
     model_id: String,
     cache_dir: PathBuf,

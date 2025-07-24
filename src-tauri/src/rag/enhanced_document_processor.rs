@@ -27,11 +27,15 @@ pub struct DocumentMetadata {
     pub file_type: String,
     pub file_size: u64,
     pub modified_time: Option<DateTime<Utc>>,
+    #[allow(dead_code)]
     pub created_time: Option<DateTime<Utc>>,
+    #[allow(dead_code)]
     pub encoding: Option<String>,
+    #[allow(dead_code)]
     pub language: Option<String>,
     pub author: Option<String>,
     pub title: Option<String>,
+    #[allow(dead_code)]
     pub subject: Option<String>,
     pub keywords: Vec<String>,
 }
@@ -40,6 +44,7 @@ pub struct EnhancedDocumentProcessor {
     // Configuration
     max_file_size: u64,
     max_content_length: usize,
+    #[allow(dead_code)]
     extract_metadata: bool,
     detect_language: bool,
 

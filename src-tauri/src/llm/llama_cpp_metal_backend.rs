@@ -6,6 +6,7 @@ use llama_cpp::standard_sampler::StandardSampler;
 
 pub struct LlamaCppMetalBackend {
     model_id: String,
+    #[allow(dead_code)]
     cache_dir: PathBuf,
     model_path: Option<PathBuf>,
     use_gpu: bool,

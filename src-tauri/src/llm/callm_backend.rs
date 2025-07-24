@@ -10,6 +10,7 @@ use std::time::Instant;
 
 pub struct CallmBackend {
     pub model_id: String,
+    #[allow(dead_code)]
     cache_dir: PathBuf,
     model: Arc<Mutex<Option<QLlamaWeights>>>,
     tokenizer: Option<Tokenizer>,
@@ -411,6 +412,7 @@ impl CallmBackend {
         }
     }
     
+    #[allow(dead_code)]
     fn generate_placeholder_response(&self, prompt: &str, max_tokens: usize) -> String {
         format!(
             "[Callm Backend - {}]\n\n\
@@ -426,21 +428,25 @@ impl CallmBackend {
         )
     }
     
+    #[allow(dead_code)]
     pub fn set_temperature(&mut self, temperature: f64) {
         self.temperature = temperature.max(0.1).min(2.0);
         println!("[CallmBackend] Temperature set to: {}", self.temperature);
     }
     
+    #[allow(dead_code)]
     pub fn set_top_p(&mut self, top_p: f64) {
         self.top_p = top_p.max(0.1).min(1.0);
         println!("[CallmBackend] Top-p set to: {}", self.top_p);
     }
     
+    #[allow(dead_code)]
     pub fn set_seed(&mut self, seed: u64) {
         self.seed = seed;
         println!("[CallmBackend] Seed set to: {}", self.seed);
     }
     
+    #[allow(dead_code)]
     pub async fn get_model_info(&self) -> ModelInfo {
         ModelInfo {
             model_type: self.model_id.clone(),

@@ -12,6 +12,7 @@ use std::time::Instant;
 
 pub struct CandleBackend {
     model_id: String,
+    #[allow(dead_code)]
     revision: String,
     cache_dir: PathBuf,
     device: Device,
@@ -580,6 +581,7 @@ impl CandleBackend {
         }
     }
     
+    #[allow(dead_code)]
     pub async fn get_model_info(&self) -> ModelInfo {
         ModelInfo {
             model_type: self.model_id.clone(),

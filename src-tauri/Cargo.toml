@@ -49,8 +49,7 @@ pdf-extract = "0.7"
 zip = "2.1"
 walkdir = "2.4"
 mime_guess = "2.0"
-# Local inference with Candle
-candle-core = { version = "0.9.1", features = ["metal"] }
+# Local inference with Candle (moved to platform-specific sections below)
 candle-nn = "0.9.1"
 candle-transformers = "0.9.1"
 tokenizers = { version = "0.20", features = ["http"] }
@@ -70,6 +69,8 @@ dotenv = "0.15"
 [target.'cfg(target_os = "macos")'.dependencies]
 # LLama.cpp with Metal support
 llama_cpp = { version = "0.3", features = ["metal"] }
+# Candle with Metal support
+candle-core = { version = "0.9.1", features = ["metal"] }
 # macOS system libraries
 objc = "0.2"
 objc-foundation = "0.1"
@@ -83,10 +84,14 @@ objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSApplication"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 # LLama.cpp with CUDA and Vulkan support
 llama_cpp = { version = "0.3", features = ["cuda", "vulkan"] }
+# Candle without Metal support
+candle-core = "0.9.1"
 
 [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
 # LLama.cpp CPU-only for other platforms
 llama_cpp = { version = "0.3" }
+# Candle without Metal support
+candle-core = "0.9.1"
 
 [features]
 default = ["custom-protocol"]

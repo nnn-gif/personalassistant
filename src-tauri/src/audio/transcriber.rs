@@ -638,6 +638,7 @@ pub struct ActionItem {
 
 // Audio file information
 #[derive(Debug)]
+#[allow(dead_code)]
 struct AudioInfo {
     duration_seconds: f64,
     sample_rate: u32,

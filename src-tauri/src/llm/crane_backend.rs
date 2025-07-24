@@ -38,6 +38,7 @@ struct LlamaConfigJson {
 
 pub struct CraneBackend {
     model_id: String,
+    #[allow(dead_code)]
     model_revision: String,
     cache_dir: PathBuf,
     device: Device,
@@ -706,21 +707,25 @@ impl CraneBackend {
         )
     }
     
+    #[allow(dead_code)]
     pub fn set_temperature(&mut self, temperature: f64) {
         self.temperature = temperature.max(0.1).min(2.0);
         println!("[CraneBackend] Temperature set to: {}", self.temperature);
     }
     
+    #[allow(dead_code)]
     pub fn set_top_p(&mut self, top_p: f64) {
         self.top_p = top_p.max(0.1).min(1.0);
         println!("[CraneBackend] Top-p set to: {}", self.top_p);
     }
     
+    #[allow(dead_code)]
     pub fn set_seed(&mut self, seed: u64) {
         self.seed = seed;
         println!("[CraneBackend] Seed set to: {}", self.seed);
     }
     
+    #[allow(dead_code)]
     pub async fn get_model_info(&self) -> ModelInfo {
         ModelInfo {
             model_type: self.model_id.clone(),
