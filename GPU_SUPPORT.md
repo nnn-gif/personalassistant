@@ -15,12 +15,10 @@ The LlamaCpp backend now supports GPU acceleration on both macOS (Metal) and Win
 - **Status**: ✅ Fully implemented and tested
 
 ### Windows
-- **Technology**: CUDA and Vulkan
-- **Requirements**: 
-  - NVIDIA GPU with CUDA support (for CUDA acceleration)
-  - Any GPU with Vulkan support (for Vulkan acceleration)
-- **Environment Variable**: `LLAMA_CUDA_FORCE_DISABLE` (set to "1" to disable)
-- **Status**: ✅ Implemented (requires testing on Windows hardware)
+- **Technology**: CPU-only (GPU support disabled due to build complexity)
+- **Requirements**: None
+- **GPU Acceleration**: Available through Ollama fallback
+- **Status**: ✅ CPU support works reliably
 
 ### Linux/Other Platforms
 - **Technology**: CPU-only
@@ -47,7 +45,7 @@ By default, GPU acceleration is enabled on supported platforms. The backend will
 
 To force CPU mode:
 - **macOS**: Set environment variable `CANDLE_USE_METAL=0`
-- **Windows**: Set environment variable `LLAMA_CUDA_FORCE_DISABLE=1`
+- **Windows**: CPU mode is the default
 
 ## Build Configuration
 
@@ -58,7 +56,7 @@ The `Cargo.toml` has been updated with platform-specific dependencies:
 llama_cpp = { version = "0.3", features = ["metal"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-llama_cpp = { version = "0.3", features = ["cuda", "vulkan"] }
+llama_cpp = { version = "0.3" }  # CPU-only for reliable builds
 
 [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
 llama_cpp = { version = "0.3" }
@@ -73,11 +71,11 @@ cargo test test_llama_gpu
 
 ## Troubleshooting
 
-### Windows GPU Not Detected
-1. Ensure NVIDIA drivers are installed (for CUDA)
-2. Check that CUDA toolkit is installed
-3. Verify Vulkan runtime is available
-4. Check environment variables
+### Windows GPU Acceleration
+Windows users can get GPU acceleration through:
+1. Use Ollama with GPU support (recommended)
+2. The system will automatically fall back to Ollama if LlamaCpp fails
+3. Ollama handles all GPU complexity internally
 
 ### macOS Metal Issues
 1. Verify macOS version is 10.13+

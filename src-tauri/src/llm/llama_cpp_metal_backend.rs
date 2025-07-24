@@ -25,8 +25,9 @@ impl LlamaCppMetalBackend {
             // Check for Metal support on macOS
             std::env::var("CANDLE_USE_METAL").map(|v| v != "0").unwrap_or(true)
         } else if cfg!(target_os = "windows") {
-            // Check for CUDA/Vulkan support on Windows
-            std::env::var("LLAMA_CUDA_FORCE_DISABLE").map(|v| v != "1").unwrap_or(true)
+            // Windows GPU support disabled due to build complexity
+            // Users should use Ollama for GPU acceleration on Windows
+            false
         } else {
             false
         };
@@ -35,9 +36,6 @@ impl LlamaCppMetalBackend {
             if cfg!(target_os = "macos") {
                 println!("[LlamaCppMetalBackend] ✅ Full Metal support via llama.cpp!");
                 println!("[LlamaCppMetalBackend] ✅ All operations including layer_norm and rms_norm supported!");
-            } else if cfg!(target_os = "windows") {
-                println!("[LlamaCppMetalBackend] ✅ GPU support enabled for Windows (CUDA/Vulkan)!");
-                println!("[LlamaCppMetalBackend] ✅ Using GPU acceleration for inference!");
             }
         } else {
             println!("[LlamaCppMetalBackend] Using CPU mode");
@@ -120,9 +118,6 @@ impl LlamaCppMetalBackend {
             params.n_gpu_layers = 999; // Load all layers to GPU
             if cfg!(target_os = "macos") {
                 println!("[LlamaCppMetalBackend] Configured for Metal with n_gpu_layers=999");
-            } else if cfg!(target_os = "windows") {
-                println!("[LlamaCppMetalBackend] Configured for Windows GPU with n_gpu_layers=999");
-                // Additional Windows-specific GPU configuration could be added here
             }
         } else {
             params.n_gpu_layers = 0; // CPU only
@@ -148,11 +143,11 @@ impl LlamaCppMetalBackend {
         
         println!("[LlamaCppMetalBackend] =================================");
         println!("[LlamaCppMetalBackend] Model: {}", self.model_id);
-        let device = if self.use_gpu {
-            if cfg!(target_os = "macos") { "Metal" } 
-            else if cfg!(target_os = "windows") { "GPU" }
-            else { "CPU" }
-        } else { "CPU" };
+        let device = if self.use_gpu && cfg!(target_os = "macos") {
+            "Metal"
+        } else {
+            "CPU"
+        };
         println!("[LlamaCppMetalBackend] Device: {}", device);
         println!("[LlamaCppMetalBackend] Max tokens: {}", max_tokens);
         println!("[LlamaCppMetalBackend] Prompt: {}", prompt.chars().take(100).collect::<String>());

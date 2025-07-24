@@ -233,9 +233,7 @@ impl LlmClient {
                 }
             }
             InferenceProvider::LlamaCpp => {
-                let device_type = if cfg!(target_os = "macos") { "Metal" } 
-                                else if cfg!(target_os = "windows") { "GPU" }
-                                else { "CPU" };
+                let device_type = if cfg!(target_os = "macos") { "Metal" } else { "CPU" };
                 println!("[LlmClient] Initializing LlamaCpp backend with {} support...", device_type);
                 match LlamaCppMetalBackend::new(
                     &config.services.candle_model_id,
@@ -626,9 +624,7 @@ impl LlmClient {
             }
             InferenceProvider::LlamaCpp => {
                 if let Some(llama_cpp) = &self.llama_cpp_backend {
-                    let device_type = if cfg!(target_os = "macos") { "Metal" } 
-                                    else if cfg!(target_os = "windows") { "GPU" }
-                                    else { "CPU" };
+                    let device_type = if cfg!(target_os = "macos") { "Metal" } else { "CPU" };
                     println!("[LLM] Using LlamaCpp backend for inference with {} support", device_type);
                     println!("[LLM] LlamaCpp model: {}", config.services.candle_model_id);
                     
@@ -798,9 +794,7 @@ impl LlmClient {
                 ("Ollama", self.model_name.clone())
             }
             InferenceProvider::LlamaCpp => {
-                let device_suffix = if cfg!(target_os = "macos") { "Metal" } 
-                                  else if cfg!(target_os = "windows") { "GPU" }
-                                  else { "CPU" };
+                let device_suffix = if cfg!(target_os = "macos") { "Metal" } else { "CPU" };
                 let model = match config.services.candle_model_id.as_str() {
                     "TinyLlama/TinyLlama-1.1B-Chat-v1.0" => format!("TinyLlama 1.1B (LlamaCpp/{})", device_suffix),
                     "Qwen/Qwen2.5-0.5B-Instruct" => format!("Qwen2.5 0.5B (LlamaCpp/{})", device_suffix),

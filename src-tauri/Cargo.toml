@@ -50,8 +50,7 @@ zip = "2.1"
 walkdir = "2.4"
 mime_guess = "2.0"
 # Local inference with Candle (moved to platform-specific sections below)
-candle-nn = "0.9.1"
-candle-transformers = "0.9.1"
+# candle-nn and candle-transformers are defined in platform-specific sections
 tokenizers = { version = "0.20", features = ["http"] }
 hf-hub = { version = "0.3", features = ["tokio"] }
 rand = "0.8"
@@ -71,6 +70,8 @@ dotenv = "0.15"
 llama_cpp = { version = "0.3", features = ["metal"] }
 # Candle with Metal support
 candle-core = { version = "0.9.1", features = ["metal"] }
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
 # macOS system libraries
 objc = "0.2"
 objc-foundation = "0.1"
@@ -82,16 +83,21 @@ objc2-foundation = { version = "0.2", features = ["NSString", "NSDate", "NSArray
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSApplication"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-# LLama.cpp with CUDA and Vulkan support
-llama_cpp = { version = "0.3", features = ["cuda", "vulkan"] }
+# LLama.cpp without GPU features due to build complexity on Windows
+# Users can still get GPU acceleration through Ollama fallback
+llama_cpp = { version = "0.3" }
 # Candle without Metal support
 candle-core = "0.9.1"
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
 
 [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
 # LLama.cpp CPU-only for other platforms
 llama_cpp = { version = "0.3" }
 # Candle without Metal support
 candle-core = "0.9.1"
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
 
 [features]
 default = ["custom-protocol"]
