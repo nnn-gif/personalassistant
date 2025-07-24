@@ -46,7 +46,7 @@ pub async fn start_audio_recording(
         Some(goal_service.get_current_or_default_goal_id().to_string())
     };
 
-    let info = recorder.start_recording_with_goal(device_name, goal_id)?;
+    let info = recorder.inner().start_recording_with_goal(device_name, goal_id)?;
 
     println!("Started audio recording with goal: {:?}", info);
 
@@ -56,7 +56,7 @@ pub async fn start_audio_recording(
 
 #[tauri::command]
 pub async fn stop_audio_recording(recorder: State<'_, Arc<SimpleAudioRecorder>>) -> Result<String> {
-    let recording = recorder.stop_recording()?;
+    let recording = recorder.inner().stop_recording()?;
 
     if let Some(ref goal_id) = recording.goal_id {
         println!(
@@ -108,7 +108,7 @@ pub async fn transcribe_recording(
     recorder: State<'_, Arc<SimpleAudioRecorder>>,
 ) -> Result<String> {
     // Check if transcription already exists
-    let recordings = recorder.get_recordings();
+    let recordings = recorder.inner().get_recordings();
     if let Some(recording) = recordings.iter().find(|r| r.id == recording_id) {
         if let Some(ref existing_transcription) = recording.transcription {
             // Return existing transcription if it exists
@@ -127,7 +127,7 @@ pub async fn transcribe_recording(
 
     // Save the transcription to the recording
     let transcription_json = serde_json::to_string(&result)?;
-    recorder.update_transcription(&recording_id, transcription_json.clone())?;
+    recorder.inner().update_transcription(&recording_id, transcription_json.clone())?;
 
     Ok(transcription_json)
 }
@@ -180,6 +180,6 @@ pub async fn delete_recording(
     #[allow(non_snake_case)] recordingId: String,
     recorder: State<'_, Arc<SimpleAudioRecorder>>,
 ) -> Result<()> {
-    recorder.delete_recording(&recordingId)?;
+    recorder.inner().delete_recording(&recordingId)?;
     Ok(())
 }

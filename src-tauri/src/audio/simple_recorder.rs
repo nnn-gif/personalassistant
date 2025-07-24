@@ -38,8 +38,6 @@ struct ActiveRecording {
     channels: u16,
     ended_at: Arc<Mutex<Option<chrono::DateTime<Utc>>>>,
     goal_id: Option<String>,
-    #[cfg(target_os = "windows")]
-    stream: Arc<Mutex<Option<cpal::Stream>>>,
 }
 
 pub struct SimpleAudioRecorder {
@@ -338,29 +336,14 @@ impl SimpleAudioRecorder {
             channels,
             ended_at,
             goal_id: goal_id.clone(),
-            #[cfg(target_os = "windows")]
-            stream: Arc::new(Mutex::new(None)),
         };
 
-        // Store the active recording before forgetting the stream
+        // Store the active recording
         *self.current_recording.lock().unwrap() = Some(active_recording);
-
-        // Platform-specific stream handling
-        #[cfg(target_os = "windows")]
-        {
-            // On Windows, we need to store the stream to keep it alive
-            // and properly stop it when recording ends
-            if let Some(ref mut recording) = *self.current_recording.lock().unwrap() {
-                recording.stream = Arc::new(Mutex::new(Some(stream)));
-            }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            // On other platforms, we use std::mem::forget to keep the stream alive
-            // The stream will continue recording until stop_recording is called
-            std::mem::forget(stream);
-        }
+        
+        // Keep the stream alive by forgetting it
+        // The stream will continue running until the process ends
+        std::mem::forget(stream);
 
         Ok(info)
     }
@@ -375,16 +358,9 @@ impl SimpleAudioRecorder {
         let ended_at = Utc::now();
         *active_recording.ended_at.lock().unwrap() = Some(ended_at);
 
-        // On Windows, explicitly stop the stream
-        #[cfg(target_os = "windows")]
-        {
-            if let Ok(mut stream_guard) = active_recording.stream.lock() {
-                // Taking the stream and dropping it will stop the recording
-                let _ = stream_guard.take();
-            }
-            // Give Windows audio subsystem time to flush buffers
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
+        // We can't stop the stream directly because we used std::mem::forget
+        // Give the audio subsystem time to flush buffers
+        std::thread::sleep(std::time::Duration::from_millis(200));
 
         // Close the writer to ensure all data is flushed
         if let Ok(mut writer_guard) = active_recording.writer.lock() {
