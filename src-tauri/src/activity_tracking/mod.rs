@@ -9,12 +9,12 @@ mod system_monitor;
 mod tracker;
 mod tracker_wrapper;
 
-pub use activity_aggregator::{ActivityAggregator, ActivityCache, CacheStats};
+pub use activity_aggregator::{ActivityAggregator, ActivityCache};
 pub use app_watcher::AppWatcher;
-pub use batch_writer::{BatchWriter, SharedBatchWriter};
+pub use batch_writer::SharedBatchWriter;
 pub use history::ActivityHistory;
 pub use input_monitor::InputMonitor;
-pub use optimized_tracker::{OptimizedActivityTracker, TrackerStats};
+pub use optimized_tracker::OptimizedActivityTracker;
 pub use project_detector::ProjectDetector;
 pub use system_monitor::SystemMonitor;
 pub use tracker::ActivityTracker;

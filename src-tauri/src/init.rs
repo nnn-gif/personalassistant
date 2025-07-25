@@ -1,5 +1,5 @@
 use crate::{
-    activity_tracking::{ActivityTracker, TrackerWrapper},
+    activity_tracking::TrackerWrapper,
     audio::SimpleAudioRecorder,
     browser_ai::BrowserAIAgent,
     database::SqliteDatabase,

@@ -24,7 +24,18 @@ fn main() {
     // Load .env file if it exists
     dotenv::dotenv().ok();
     
-    tracing_subscriber::fmt::init();
+    // Configure logging to reduce chromiumoxide noise
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| {
+                    // Set default log levels
+                    "personalassistant=debug,chromiumoxide=warn,chromiumoxide::conn=error,chromiumoxide::handler=error".into()
+                })
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

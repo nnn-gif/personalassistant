@@ -1,7 +1,7 @@
 use crate::browser_ai::BrowserAIAgent;
 use crate::database::SqliteDatabase;
 use crate::error::Result;
-use crate::models::{ResearchTask, SavedResearchTask};
+use crate::models::{ResearchTask, SavedResearchTask, BrowserAIProgressLight, BrowserAINewResult};
 use chrono::Utc;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -22,20 +22,41 @@ pub async fn start_research(
 ) -> Result<Uuid> {
     println!("Starting research for query: {query}");
 
-    let (tx, mut rx) = mpsc::channel(100);
+    let (progress_tx, mut progress_rx) = mpsc::channel(100);
+    let (result_tx, mut result_rx) = mpsc::channel(100);
 
     let mut agent = agent.lock().await;
-    let task_id = agent.start_research(query, tx).await?;
+    let task_id = agent.start_research(query, progress_tx, Some(result_tx)).await?;
 
     println!("Research task created with ID: {task_id}");
 
-    // Spawn task to forward progress events to frontend
+    let app_handle = app.clone();
+    
+    // Spawn task to forward lightweight progress events
     tauri::async_runtime::spawn(async move {
-        while let Some(progress) = rx.recv().await {
-            println!("Emitting progress: {:?}", progress.status);
-            match app.emit("browser-ai-progress", &progress) {
-                Ok(_) => println!("Progress event emitted successfully"),
+        while let Some(progress) = progress_rx.recv().await {
+            // Only log important status changes
+            if matches!(progress.status, crate::models::TaskStatus::Searching | 
+                                       crate::models::TaskStatus::Scraping | 
+                                       crate::models::TaskStatus::Analyzing |
+                                       crate::models::TaskStatus::Completed) {
+                println!("Progress: {} - {}%", progress.current_operation.as_ref().unwrap_or(&"Working".to_string()), progress.percentage);
+            }
+            
+            match app.emit("browser-ai-progress-light", &progress) {
+                Ok(_) => {},
                 Err(e) => println!("Failed to emit progress: {e:?}"),
+            }
+        }
+    });
+    
+    // Spawn task to forward new result events
+    tauri::async_runtime::spawn(async move {
+        while let Some(result) = result_rx.recv().await {
+            println!("New result found: {} from {}", result.result.title, result.subtask_query);
+            match app_handle.emit("browser-ai-new-result", &result) {
+                Ok(_) => {},
+                Err(e) => println!("Failed to emit new result: {e:?}"),
             }
         }
     });

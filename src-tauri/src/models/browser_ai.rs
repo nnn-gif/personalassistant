@@ -14,7 +14,7 @@ pub struct ResearchTask {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskStatus {
     Pending,
     SplittingTasks,
@@ -64,6 +64,26 @@ pub struct BrowserAIProgress {
     pub subtasks_progress: Vec<SubtaskProgress>,
     pub intermediate_results: Vec<ResearchResult>,
     pub phase_details: Option<PhaseDetails>,
+}
+
+// Lightweight progress for frequent updates
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserAIProgressLight {
+    pub task_id: Uuid,
+    pub status: TaskStatus,
+    pub current_operation: Option<String>,
+    pub percentage: f32,
+    pub phase: Option<String>,
+    pub completed_subtasks: usize,
+    pub total_subtasks: usize,
+}
+
+// Event for new results found
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserAINewResult {
+    pub task_id: Uuid,
+    pub result: ResearchResult,
+    pub subtask_query: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

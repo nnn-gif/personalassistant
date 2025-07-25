@@ -2,8 +2,8 @@ use super::{ChromeController, ScraperEngine};
 use crate::error::{AppError, Result};
 use crate::llm::LlmClient;
 use crate::models::{
-    BrowserAIProgress, PhaseDetails, ResearchResult, ResearchSubtask, ResearchTask, SearchResult,
-    SubtaskProgress, TaskStatus,
+    BrowserAIProgress, BrowserAIProgressLight, BrowserAINewResult, PhaseDetails, ResearchResult, 
+    ResearchSubtask, ResearchTask, SearchResult, SubtaskProgress, TaskStatus,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,8 @@ struct ResearchPlan {
     subtopics: Vec<String>,
     search_queries: Vec<String>,
     requires_browser: bool,
+    #[serde(default)]
+    is_time_sensitive: bool,
 }
 
 pub struct BrowserAIAgent {
@@ -26,6 +28,8 @@ pub struct BrowserAIAgent {
     chrome: ChromeController,
     active_tasks: HashMap<Uuid, ResearchTask>,
     llm_client: Arc<LlmClient>,
+    browser_initialized: bool,
+    last_progress_time: std::time::Instant,
 }
 
 impl BrowserAIAgent {
@@ -34,18 +38,22 @@ impl BrowserAIAgent {
     }
     
     pub fn with_llm_client(llm_client: Arc<LlmClient>) -> Self {
+        println!("[BrowserAIAgent] Creating new BrowserAIAgent");
         Self {
             scraper: ScraperEngine::new(),
             chrome: ChromeController::new(),
             active_tasks: HashMap::new(),
             llm_client,
+            browser_initialized: false,
+            last_progress_time: std::time::Instant::now(),
         }
     }
 
     pub async fn start_research(
         &mut self,
         query: String,
-        progress_sender: mpsc::Sender<BrowserAIProgress>,
+        progress_sender: mpsc::Sender<BrowserAIProgressLight>,
+        result_sender: Option<mpsc::Sender<BrowserAINewResult>>,
     ) -> Result<Uuid> {
         println!("Agent: Starting research for: {query}");
 
@@ -66,7 +74,7 @@ impl BrowserAIAgent {
         // Step 1: Create research plan
         task.status = TaskStatus::SplittingTasks;
         let _ = self
-            .send_detailed_progress(
+            .send_light_progress(
                 &task,
                 &progress_sender,
                 Some("Analyzing query and creating research plan...".to_string()),
@@ -99,7 +107,7 @@ impl BrowserAIAgent {
 
         // Send progress with created subtasks
         let _ = self
-            .send_detailed_progress(
+            .send_light_progress(
                 &task,
                 &progress_sender,
                 Some(format!("Created {} research tasks", task.subtasks.len())),
@@ -117,7 +125,7 @@ impl BrowserAIAgent {
         // Step 2: Execute searches
         task.status = TaskStatus::Searching;
         let _ = self
-            .send_detailed_progress(
+            .send_light_progress(
                 &task,
                 &progress_sender,
                 Some("Starting web searches...".to_string()),
@@ -135,7 +143,7 @@ impl BrowserAIAgent {
 
             // Update progress for current search
             let _ = self
-                .send_detailed_progress(
+                .send_light_progress(
                     &task,
                     &progress_sender,
                     Some(format!("Searching: {subtask_query}")),
@@ -147,11 +155,26 @@ impl BrowserAIAgent {
                 )
                 .await;
 
+            println!("[BrowserAIAgent] Processing subtask {}/{}: {}", i + 1, total_subtasks, subtask_query);
+            println!("[BrowserAIAgent] Requires browser: {}, Time sensitive: {}", plan.requires_browser, plan.is_time_sensitive);
+            
             let search_results = if plan.requires_browser {
+                println!("[BrowserAIAgent] Using browser for search");
                 self.search_with_browser(&subtask_query).await?
             } else {
-                self.search_web(&subtask_query).await?
+                // For time-sensitive queries, add date filtering hint to search
+                let enhanced_query = if plan.is_time_sensitive {
+                    format!("{} -site:wikipedia.org", subtask_query)
+                } else if subtask_query.to_lowercase().contains("news") || subtask_query.to_lowercase().contains("latest") {
+                    format!("{} site:news.google.com OR site:reuters.com OR site:bloomberg.com OR site:techcrunch.com", subtask_query)
+                } else {
+                    subtask_query.clone()
+                };
+                println!("[BrowserAIAgent] Using web search with query: {}", enhanced_query);
+                self.search_web(&enhanced_query).await?
             };
+            
+            println!("[BrowserAIAgent] Found {} search results", search_results.len());
 
             // Update the subtask with results
             task.subtasks[i].search_results = search_results.clone();
@@ -159,7 +182,7 @@ impl BrowserAIAgent {
 
             // Send progress after each search
             let _ = self
-                .send_detailed_progress(
+                .send_light_progress(
                     &task,
                     &progress_sender,
                     Some(format!(
@@ -175,7 +198,7 @@ impl BrowserAIAgent {
         // Step 3: Intelligent scraping
         task.status = TaskStatus::Scraping;
         let _ = self
-            .send_detailed_progress(
+            .send_light_progress(
                 &task,
                 &progress_sender,
                 Some("Starting content extraction...".to_string()),
@@ -199,7 +222,7 @@ impl BrowserAIAgent {
             task.subtasks[i].status = TaskStatus::Scraping;
 
             let _ = self
-                .send_detailed_progress(
+                .send_light_progress(
                     &task,
                     &progress_sender,
                     Some(format!("Extracting content for: {subtask_query}")),
@@ -212,7 +235,7 @@ impl BrowserAIAgent {
 
             for (j, search_result) in top_results.iter().enumerate() {
                 let _ = self
-                    .send_detailed_progress(
+                    .send_light_progress(
                         &task,
                         &progress_sender,
                         Some(format!(
@@ -225,11 +248,16 @@ impl BrowserAIAgent {
                     )
                     .await;
 
+                println!("[BrowserAIAgent] Attempting to scrape: {}", search_result.url);
                 if let Ok(content) = self.scraper.scrape_url(&search_result.url).await {
+                    println!("[BrowserAIAgent] Successfully scraped {} characters", content.len());
+                    
                     // Extract relevant content using LLM
+                    println!("[BrowserAIAgent] Extracting relevant content using LLM...");
                     let extracted = self
                         .extract_relevant_content(&content, &subtask_query)
                         .await?;
+                    println!("[BrowserAIAgent] Extracted {} characters of relevant content", extracted.len());
 
                     let result = ResearchResult {
                         id: Uuid::new_v4(),
@@ -242,10 +270,21 @@ impl BrowserAIAgent {
                     };
                     results.push(result.clone());
 
-                    // Update task with new result and send progress immediately
+                    // Update task with new result
                     task.results = results.clone();
+                    
+                    // Send new result event if sender is available
+                    if let Some(ref result_sender) = result_sender {
+                        let _ = result_sender.send(BrowserAINewResult {
+                            task_id,
+                            result: result.clone(),
+                            subtask_query: subtask_query.clone(),
+                        }).await;
+                    }
+                    
+                    // Send lightweight progress
                     let _ = self
-                        .send_detailed_progress(
+                        .send_light_progress(
                             &task,
                             &progress_sender,
                             Some(format!("Found content: {}", result.title)),
@@ -262,7 +301,7 @@ impl BrowserAIAgent {
         // Step 4: Synthesize results
         task.status = TaskStatus::Analyzing;
         let _ = self
-            .send_detailed_progress(
+            .send_light_progress(
                 &task,
                 &progress_sender,
                 Some("Analyzing and synthesizing findings...".to_string()),
@@ -284,7 +323,7 @@ impl BrowserAIAgent {
         task.status = TaskStatus::Completed;
         task.updated_at = Utc::now();
         let _ = self
-            .send_detailed_progress(
+            .send_light_progress(
                 &task,
                 &progress_sender,
                 Some("Research completed!".to_string()),
@@ -313,29 +352,57 @@ impl BrowserAIAgent {
     }
 
     async fn create_research_plan(&self, query: &str) -> Result<ResearchPlan> {
+        // Get current date for time-sensitive queries
+        let current_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let current_year = chrono::Local::now().format("%Y").to_string();
+        
         // Try to use LLM for intelligent planning
         let prompt = format!(
-            "Create a research plan for the following query: '{query}'\n\n\
+            "Create a research plan for the following query: '{query}'\n\
+            Current date: {current_date}\n\n\
             Analyze the query and break it down into multiple focused search tasks.\n\
+            IMPORTANT: If the query is about current events, latest information, or time-sensitive topics \
+            (like 'latest movies', 'current news', 'new releases', 'recent events'), make sure to:\n\
+            - Include the current year ({current_year}) or recent time frames in search queries\n\
+            - Focus on recent and up-to-date sources\n\
+            - Set category as 'news' or 'current' when appropriate\n\n\
             Return a JSON object with:\n\
             1. main_topic: The main topic being researched\n\
-            2. category: Category (e.g., 'technical', 'academic', 'news', 'product', 'general')\n\
+            2. category: Category (e.g., 'technical', 'academic', 'news', 'current', 'product', 'general')\n\
             3. subtopics: Array of 3-5 specific subtopics to research\n\
             4. search_queries: Array of 3-5 DIFFERENT optimized search queries (MUST have at least 3)\n\
-            5. requires_browser: Boolean indicating if interactive browser is needed\n\n\
+               - For current/latest topics, include time qualifiers like '{current_year}', 'latest', 'new', 'recent'\n\
+            5. requires_browser: Boolean indicating if interactive browser is needed\n\
+            6. is_time_sensitive: Boolean indicating if this query needs current/latest information\n\n\
             IMPORTANT: You MUST provide at least 3 different search queries to cover different aspects.\n\n\
-            Example format:\n\
+            Example for current topics:\n\
+            {{\n\
+              \"main_topic\": \"Latest Bollywood Movies\",\n\
+              \"category\": \"current\",\n\
+              \"subtopics\": [\"new releases {current_year}\", \"upcoming movies\", \"box office hits\", \"streaming releases\"],\n\
+              \"search_queries\": [\n\
+                \"latest bollywood movies {current_year}\",\n\
+                \"new bollywood releases this month\",\n\
+                \"bollywood box office collection {current_year}\",\n\
+                \"upcoming bollywood movies {current_year}\",\n\
+                \"best bollywood movies {current_year} so far\"\n\
+              ],\n\
+              \"requires_browser\": false,\n\
+              \"is_time_sensitive\": true\n\
+            }}\n\n\
+            Example for technical topics:\n\
             {{\n\
               \"main_topic\": \"Machine Learning Algorithms\",\n\
               \"category\": \"technical\",\n\
               \"subtopics\": [\"supervised learning\", \"unsupervised learning\", \"neural networks\"],\n\
               \"search_queries\": [\n\
-                \"machine learning algorithms comparison 2024\",\n\
+                \"machine learning algorithms comparison {current_year}\",\n\
                 \"supervised vs unsupervised learning examples\",\n\
                 \"neural network architectures guide\",\n\
                 \"best ML algorithms for beginners\"\n\
               ],\n\
-              \"requires_browser\": false\n\
+              \"requires_browser\": false,\n\
+              \"is_time_sensitive\": false\n\
             }}\n\n\
             Now create a plan for: '{query}'"
         );
@@ -363,20 +430,55 @@ impl BrowserAIAgent {
     }
 
     fn create_fallback_plan(&self, query: &str) -> ResearchPlan {
+        let query_lower = query.to_lowercase();
+        let current_year = chrono::Local::now().format("%Y").to_string();
+        
+        // Check if query contains time-sensitive keywords
+        let is_time_sensitive = query_lower.contains("latest") 
+            || query_lower.contains("new")
+            || query_lower.contains("recent")
+            || query_lower.contains("current")
+            || query_lower.contains("today")
+            || query_lower.contains("this week")
+            || query_lower.contains("this month")
+            || query_lower.contains("this year")
+            || query_lower.contains(&current_year);
+        
+        let category = if is_time_sensitive { "current" } else { "general" };
+        
+        // Determine if browser is needed for better results
+        let requires_browser = query_lower.contains("google") 
+            || query_lower.contains("search")
+            || is_time_sensitive;
+        
+        // Create search queries with time qualifiers for time-sensitive topics
+        let search_queries = if is_time_sensitive {
+            vec![
+                format!("{query} {current_year} -wikipedia"),
+                format!("{query} latest news"),
+                format!("{query} recent updates {current_year}"),
+                format!("{query} trending"),
+            ]
+        } else {
+            vec![
+                format!("{query} -wikipedia"),
+                format!("{query} tutorial"),
+                format!("{query} guide"),
+                format!("{query} examples"),
+            ]
+        };
+        
         ResearchPlan {
             main_topic: query.to_string(),
-            category: "general".to_string(),
+            category: category.to_string(),
             subtopics: vec![
                 format!("{query} overview"),
                 format!("{query} details"),
-                format!("{query} examples"),
+                if is_time_sensitive { format!("{query} recent developments") } else { format!("{query} examples") },
             ],
-            search_queries: vec![
-                query.to_string(),
-                format!("{query} tutorial"),
-                format!("{query} guide"),
-            ],
-            requires_browser: false,
+            search_queries,
+            requires_browser,
+            is_time_sensitive,
         }
     }
 
@@ -396,27 +498,53 @@ impl BrowserAIAgent {
         Ok(subtasks)
     }
 
-    async fn search_with_browser(&self, query: &str) -> Result<Vec<SearchResult>> {
+    async fn search_with_browser(&mut self, query: &str) -> Result<Vec<SearchResult>> {
+        println!("[BrowserAIAgent] Starting browser search for: {}", query);
+        
+        // Initialize browser if not already done
+        if !self.browser_initialized {
+            println!("[BrowserAIAgent] Browser not initialized, creating Chrome with LLM support...");
+            self.chrome = ChromeController::with_llm("claude-3-5-sonnet-20241022").await?;
+            println!("[BrowserAIAgent] Launching browser...");
+            self.chrome.launch_browser(false).await?;
+            self.browser_initialized = true;
+            println!("[BrowserAIAgent] Browser initialized successfully");
+        }
+        
         // Open Chrome with search query
+        println!("[BrowserAIAgent] Opening Chrome with Google search...");
         self.chrome.search_google(query).await?;
 
         // Wait a bit for page to load
+        println!("[BrowserAIAgent] Waiting 3 seconds for page to load...");
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
         // Try to get search results from Chrome
+        println!("[BrowserAIAgent] Extracting search results from Chrome...");
         match self.chrome.get_search_results().await {
-            Ok(results) if !results.is_empty() => Ok(results
-                .into_iter()
-                .enumerate()
-                .map(|(i, (url, title))| SearchResult {
-                    url,
-                    title,
-                    snippet: String::new(),
-                    relevance_score: 1.0 - (i as f32 * 0.05),
-                })
-                .collect()),
-            _ => {
-                // Fallback to regular web search
+            Ok(results) if !results.is_empty() => {
+                println!("[BrowserAIAgent] Successfully extracted {} results from Chrome", results.len());
+                let search_results: Vec<SearchResult> = results
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (url, title))| {
+                        println!("[BrowserAIAgent] Result {}: {} - {}", i + 1, title, url);
+                        SearchResult {
+                            url,
+                            title,
+                            snippet: String::new(),
+                            relevance_score: 1.0 - (i as f32 * 0.05),
+                        }
+                    })
+                    .collect();
+                Ok(search_results)
+            }
+            Ok(_) => {
+                println!("[BrowserAIAgent] No results from Chrome, falling back to web search");
+                self.search_web(query).await
+            }
+            Err(e) => {
+                println!("[BrowserAIAgent] Error getting Chrome results: {}, falling back to web search", e);
                 self.search_web(query).await
             }
         }
@@ -490,9 +618,13 @@ impl BrowserAIAgent {
     }
 
     async fn search_web(&self, query: &str) -> Result<Vec<SearchResult>> {
-        // Use DuckDuckGo HTML API
-        let encoded_query = urlencoding::encode(query);
+        println!("[BrowserAIAgent] Performing web search via DuckDuckGo for: {}", query);
+        
+        // Use DuckDuckGo HTML API with site exclusions to get diverse results
+        let enhanced_query = format!("{} -site:wikipedia.org", query);
+        let encoded_query = urlencoding::encode(&enhanced_query);
         let url = format!("https://html.duckduckgo.com/html/?q={encoded_query}");
+        println!("[BrowserAIAgent] DuckDuckGo URL: {}", url);
 
         let response = reqwest::get(&url)
             .await
@@ -503,59 +635,158 @@ impl BrowserAIAgent {
             .await
             .map_err(|e| AppError::BrowserAI(format!("Failed to read search response: {e}")))?;
 
-        // Parse search results from HTML
-        let document = scraper::Html::parse_document(&html);
-        let result_selector = scraper::Selector::parse(".result").unwrap();
-        let title_selector = scraper::Selector::parse(".result__a").unwrap();
-        let snippet_selector = scraper::Selector::parse(".result__snippet").unwrap();
+        // Parse search results from HTML - do all parsing before any await
+        let mut results = {
+            let document = scraper::Html::parse_document(&html);
+            let result_selector = scraper::Selector::parse(".result").unwrap();
+            let title_selector = scraper::Selector::parse(".result__a").unwrap();
+            let snippet_selector = scraper::Selector::parse(".result__snippet").unwrap();
 
-        let mut results = Vec::new();
+            let mut temp_results = Vec::new();
 
-        for (i, result) in document.select(&result_selector).enumerate() {
-            if i >= 10 {
-                break;
-            } // Limit to 10 results
+            for (i, result) in document.select(&result_selector).enumerate() {
+                if i >= 10 {
+                    break;
+                } // Limit to 10 results
 
-            let title = result
-                .select(&title_selector)
-                .next()
-                .map(|el| el.text().collect::<String>())
-                .unwrap_or_default();
+                let title = result
+                    .select(&title_selector)
+                    .next()
+                    .map(|el| el.text().collect::<String>())
+                    .unwrap_or_default();
 
-            let url = result
-                .select(&title_selector)
-                .next()
-                .and_then(|el| el.value().attr("href"))
-                .unwrap_or_default()
-                .to_string();
+                let url = result
+                    .select(&title_selector)
+                    .next()
+                    .and_then(|el| el.value().attr("href"))
+                    .unwrap_or_default()
+                    .to_string();
 
-            let snippet = result
-                .select(&snippet_selector)
-                .next()
-                .map(|el| el.text().collect::<String>())
-                .unwrap_or_default();
+                let snippet = result
+                    .select(&snippet_selector)
+                    .next()
+                    .map(|el| el.text().collect::<String>())
+                    .unwrap_or_default();
 
-            if !url.is_empty() && !title.is_empty() {
+                if !url.is_empty() && !title.is_empty() {
+                    temp_results.push(SearchResult {
+                        url: url.replace("//duckduckgo.com/l/?uddg=", ""),
+                        title: title.trim().to_string(),
+                        snippet: snippet.trim().to_string(),
+                        relevance_score: 1.0 - (i as f32 * 0.05), // Score based on ranking
+                    });
+                }
+            }
+            temp_results
+        };
+
+        println!("[BrowserAIAgent] Parsed {} results from DuckDuckGo", results.len());
+        
+        // Filter out duplicate domains to ensure diversity
+        let mut seen_domains = std::collections::HashSet::new();
+        let mut diverse_results = Vec::new();
+        
+        for result in results {
+            if let Ok(parsed_url) = url::Url::parse(&result.url) {
+                if let Some(domain) = parsed_url.domain() {
+                    if seen_domains.insert(domain.to_string()) {
+                        diverse_results.push(result);
+                    }
+                }
+            }
+        }
+        
+        results = diverse_results;
+        
+        if results.is_empty() {
+            println!("[BrowserAIAgent] No diverse results found, trying alternative search");
+            // Try a Google search via URL (won't get as good results but better than nothing)
+            results = self.search_google_via_url(query).await.unwrap_or_else(|_| {
+                // Last resort fallback
+                vec![SearchResult {
+                    url: format!("https://www.google.com/search?q={}", urlencoding::encode(query)),
+                    title: format!("Search for {query}"),
+                    snippet: format!("Search results for {query}"),
+                    relevance_score: 0.5,
+                }]
+            });
+        }
+        
+        // If we still have Wikipedia as the only result, add more diverse sources
+        if results.len() == 1 && results[0].url.contains("wikipedia") {
+            println!("[BrowserAIAgent] Only Wikipedia found, adding diverse sources");
+            // Add some general tech sites for technical queries
+            if query.to_lowercase().contains("programming") || query.to_lowercase().contains("code") || query.to_lowercase().contains("rust") {
                 results.push(SearchResult {
-                    url: url.replace("//duckduckgo.com/l/?uddg=", ""),
-                    title: title.trim().to_string(),
-                    snippet: snippet.trim().to_string(),
-                    relevance_score: 1.0 - (i as f32 * 0.05), // Score based on ranking
+                    url: format!("https://stackoverflow.com/search?q={}", urlencoding::encode(query)),
+                    title: format!("{} - Stack Overflow", query),
+                    snippet: "Community discussions and solutions".to_string(),
+                    relevance_score: 0.8,
+                });
+                results.push(SearchResult {
+                    url: format!("https://github.com/search?q={}", urlencoding::encode(query)),
+                    title: format!("{} - GitHub", query),
+                    snippet: "Open source projects and code examples".to_string(),
+                    relevance_score: 0.7,
                 });
             }
         }
-
-        if results.is_empty() {
-            // Fallback to mock results if parsing fails
-            results = vec![SearchResult {
-                url: format!("https://en.wikipedia.org/wiki/{}", query.replace(' ', "_")),
-                title: format!("{query} - Wikipedia"),
-                snippet: format!("Information about {query}"),
-                relevance_score: 0.9,
-            }];
+        
+        for (i, result) in results.iter().enumerate() {
+            println!("[BrowserAIAgent] Final result {}: {} - {}", i + 1, result.title, result.url);
         }
 
         Ok(results)
+    }
+
+    async fn search_google_via_url(&self, query: &str) -> Result<Vec<SearchResult>> {
+        println!("[BrowserAIAgent] Trying Google search via URL scraping");
+        
+        // Create a Google search URL
+        let encoded_query = urlencoding::encode(query);
+        let search_url = format!("https://www.google.com/search?q={}", encoded_query);
+        
+        // Try to scrape Google search results page
+        match self.scraper.scrape_url(&search_url).await {
+            Ok(content) => {
+                // Extract URLs from the content (basic extraction)
+                let mut results = Vec::new();
+                
+                // Look for common patterns in Google results
+                if content.contains("stackoverflow.com") {
+                    results.push(SearchResult {
+                        url: format!("https://stackoverflow.com/search?q={}", encoded_query),
+                        title: format!("{} - Stack Overflow", query),
+                        snippet: "Programming Q&A and solutions".to_string(),
+                        relevance_score: 0.9,
+                    });
+                }
+                
+                if content.contains("github.com") {
+                    results.push(SearchResult {
+                        url: format!("https://github.com/search?q={}", encoded_query),
+                        title: format!("{} - GitHub", query),
+                        snippet: "Open source code and projects".to_string(),
+                        relevance_score: 0.85,
+                    });
+                }
+                
+                if content.contains("docs.") || content.contains("documentation") {
+                    results.push(SearchResult {
+                        url: format!("https://docs.rs/releases/search?query={}", encoded_query),
+                        title: format!("{} - Documentation", query),
+                        snippet: "Official documentation and guides".to_string(),
+                        relevance_score: 0.8,
+                    });
+                }
+                
+                Ok(results)
+            }
+            Err(e) => {
+                println!("[BrowserAIAgent] Failed to scrape Google: {}", e);
+                Ok(vec![])
+            }
+        }
     }
 
     fn extract_json(&self, text: &str) -> Result<String> {
@@ -586,13 +817,66 @@ impl BrowserAIAgent {
     }
 
     async fn send_progress(
-        &self,
+        &mut self,
         task: &ResearchTask,
-        sender: &mpsc::Sender<BrowserAIProgress>,
+        sender: &mpsc::Sender<BrowserAIProgressLight>,
     ) -> Result<()> {
-        self.send_detailed_progress(task, sender, None, None).await
+        self.send_light_progress(task, sender, None, None).await
     }
 
+    async fn send_light_progress(
+        &mut self,
+        task: &ResearchTask,
+        sender: &mpsc::Sender<BrowserAIProgressLight>,
+        current_operation: Option<String>,
+        phase_details: Option<PhaseDetails>,
+    ) -> Result<()> {
+        // Throttle progress updates to max 1 per 500ms
+        let now = std::time::Instant::now();
+        if now.duration_since(self.last_progress_time).as_millis() < 500 && task.status != TaskStatus::Completed {
+            return Ok(());
+        }
+        self.last_progress_time = now;
+
+        let completed_subtasks = task
+            .subtasks
+            .iter()
+            .filter(|s| matches!(s.status, TaskStatus::Completed))
+            .count();
+
+        let total_subtasks = task.subtasks.len();
+        let percentage = if total_subtasks > 0 {
+            (completed_subtasks as f32 / total_subtasks as f32) * 100.0
+        } else {
+            match task.status {
+                TaskStatus::SplittingTasks => 10.0,
+                TaskStatus::Searching => 30.0,
+                TaskStatus::Scraping => 60.0,
+                TaskStatus::Analyzing => 85.0,
+                TaskStatus::Completed => 100.0,
+                _ => 0.0,
+            }
+        };
+
+        let progress = BrowserAIProgressLight {
+            task_id: task.id,
+            status: task.status.clone(),
+            current_operation,
+            percentage,
+            phase: phase_details.map(|pd| pd.phase),
+            completed_subtasks,
+            total_subtasks,
+        };
+
+        sender
+            .send(progress)
+            .await
+            .map_err(|_| AppError::BrowserAI("Failed to send progress".into()))?;
+
+        Ok(())
+    }
+
+    // Keep old method for final complete status with all data
     async fn send_detailed_progress(
         &self,
         task: &ResearchTask,
