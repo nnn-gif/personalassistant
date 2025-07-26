@@ -48,23 +48,42 @@ impl WindowsAudioRecorder {
         device_name: Option<String>,
         goal_id: Option<String>,
     ) -> Result<RecordingInfo> {
+        tracing::info!("Starting Windows audio recording with device: {:?}", device_name);
+        
         // Ensure no recording is in progress
         if self.current_recording.lock().unwrap().is_some() {
+            tracing::warn!("Recording already in progress");
             return Err(AppError::Audio("Recording already in progress".to_string()));
         }
 
         let host = cpal::default_host();
+        tracing::debug!("Using audio host: {:?}", host.id());
 
         // Get the device
-        let device = if let Some(name) = device_name {
-            host.input_devices()
+        let device = if let Some(name) = device_name.clone() {
+            tracing::debug!("Looking for specific device: {}", name);
+            let devices: Vec<_> = host.input_devices()
                 .map_err(|e| AppError::Audio(format!("Failed to list devices: {e}")))?
+                .collect();
+            
+            tracing::debug!("Found {} input devices", devices.len());
+            for d in &devices {
+                if let Ok(device_name) = d.name() {
+                    tracing::debug!("  - {}", device_name);
+                }
+            }
+            
+            devices.into_iter()
                 .find(|d| d.name().ok() == Some(name.clone()))
-                .ok_or_else(|| AppError::Audio(format!("Device {name} not found")))?
+                .ok_or_else(|| AppError::Audio(format!("Device '{}' not found", name)))?
         } else {
+            tracing::debug!("Using default input device");
             host.default_input_device()
                 .ok_or_else(|| AppError::Audio("No default input device found".to_string()))?
         };
+        
+        let device_name_str = device.name().unwrap_or_else(|_| "Unknown".to_string());
+        tracing::info!("Selected device: {}", device_name_str);
 
         // Get supported configs and pick the best one
         let mut supported_configs = device
@@ -78,6 +97,8 @@ impl WindowsAudioRecorder {
             ));
         }
 
+        tracing::debug!("Found {} supported configurations", supported_configs.len());
+        
         // Sort by sample rate and channels to get the best quality
         supported_configs.sort_by(|a, b| {
             let a_rate = a.max_sample_rate().0;
@@ -85,7 +106,15 @@ impl WindowsAudioRecorder {
             let a_channels = a.channels() as u32;
             let b_channels = b.channels() as u32;
 
-            // Prefer higher sample rate and more channels
+            // Prefer standard sample rates (48000, 44100) over others
+            let a_standard = matches!(a_rate, 48000 | 44100);
+            let b_standard = matches!(b_rate, 48000 | 44100);
+            
+            if a_standard != b_standard {
+                return b_standard.cmp(&a_standard);
+            }
+
+            // Then prefer higher sample rate and more channels
             (b_rate * b_channels).cmp(&(a_rate * a_channels))
         });
 
@@ -93,6 +122,11 @@ impl WindowsAudioRecorder {
         let sample_rate = config.max_sample_rate().0;
         let channels = config.channels();
         let sample_format = config.sample_format();
+        
+        tracing::info!(
+            "Selected config: {} Hz, {} channels, {:?} format",
+            sample_rate, channels, sample_format
+        );
 
         // Create config
         let stream_config = cpal::StreamConfig {
@@ -133,7 +167,8 @@ impl WindowsAudioRecorder {
         let sample_count_clone = self.sample_count.clone();
 
         let err_fn = |err| {
-            eprintln!("Audio stream error: {err}");
+            tracing::error!("Audio stream error: {}", err);
+            eprintln!("Audio stream error: {}", err);
         };
 
         let stream = match sample_format {
@@ -215,6 +250,12 @@ impl WindowsAudioRecorder {
         *self.current_stream.lock().unwrap() = Some(stream);
         *self.current_recording.lock().unwrap() = Some(info.clone());
 
+        tracing::info!(
+            "Recording started successfully: {} at {}",
+            info.id,
+            info.file_path.display()
+        );
+
         Ok(info)
     }
 
@@ -284,5 +325,53 @@ impl WindowsAudioRecorder {
 
     pub fn get_recordings(&self) -> Vec<AudioRecording> {
         self.recordings.lock().unwrap().clone()
+    }
+
+    pub fn list_devices() -> Result<Vec<String>> {
+        let host = cpal::default_host();
+        let mut devices = vec!["Default Input".to_string()];
+
+        // Get all input devices
+        if let Ok(input_devices) = host.input_devices() {
+            for device in input_devices {
+                if let Ok(name) = device.name() {
+                    // Skip duplicate default device entries
+                    if !name.contains("Default") {
+                        devices.push(name);
+                    }
+                }
+            }
+        }
+
+        Ok(devices)
+    }
+
+    pub fn start_recording_with_goal(
+        &self,
+        device_name: Option<String>,
+        goal_id: Option<String>,
+    ) -> Result<RecordingInfo> {
+        self.start_recording(device_name, goal_id)
+    }
+
+    pub fn delete_recording(&self, recording_id: &str) -> Result<()> {
+        // Find and remove the recording from memory
+        let mut recordings = self.recordings.lock().unwrap();
+        if let Some(pos) = recordings.iter().position(|r| r.id == recording_id) {
+            let recording = recordings.remove(pos);
+            // Try to delete the file
+            if let Ok(path) = std::path::PathBuf::from(&recording.file_path).canonicalize() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn update_transcription(&self, recording_id: &str, transcription: String) -> Result<()> {
+        let mut recordings = self.recordings.lock().unwrap();
+        if let Some(recording) = recordings.iter_mut().find(|r| r.id == recording_id) {
+            recording.transcription = Some(transcription);
+        }
+        Ok(())
     }
 }

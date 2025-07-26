@@ -1,6 +1,6 @@
 use crate::{
     activity_tracking::TrackerWrapper,
-    audio::SimpleAudioRecorder,
+    audio::PlatformAudioRecorder,
     browser_ai::BrowserAIAgent,
     database::SqliteDatabase,
     error::Result,
@@ -17,7 +17,7 @@ pub struct AppServices {
     pub activity_tracker: Arc<Mutex<TrackerWrapper>>,
     pub browser_ai: Arc<Mutex<BrowserAIAgent>>,
     pub llm_client: Arc<LlmClient>,
-    pub audio_recorder: Option<Arc<SimpleAudioRecorder>>,
+    pub audio_recorder: Option<Arc<PlatformAudioRecorder>>,
     pub database: Option<Arc<Mutex<SqliteDatabase>>>,
     pub rag_system: Option<Arc<Mutex<RAGSystemWrapper>>>,
     pub goal_service: Arc<Mutex<GoalService>>,
@@ -29,8 +29,11 @@ impl AppServices {
         let llm_client = Arc::new(LlmClient::new_async().await);
         let browser_ai = Arc::new(Mutex::new(BrowserAIAgent::with_llm_client(llm_client.clone())));
 
-        let audio_recorder = match SimpleAudioRecorder::new() {
+        let audio_recorder = match PlatformAudioRecorder::new() {
             Ok(recorder) => {
+                #[cfg(target_os = "windows")]
+                tracing::info!("Windows audio recorder initialized successfully");
+                #[cfg(not(target_os = "windows"))]
                 tracing::info!("Audio recorder initialized successfully");
                 Some(Arc::new(recorder))
             }

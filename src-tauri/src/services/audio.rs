@@ -1,5 +1,6 @@
 use crate::audio::transcriber::{AudioTranscriber, TranscriptionMethod};
-use crate::audio::{AudioProcessor, SimpleAudioRecorder};
+use crate::audio::{AudioProcessor, PlatformAudioRecorder};
+use crate::audio::simple_recorder::AudioRecording;
 use crate::error::Result;
 use crate::goals::GoalService;
 use crate::llm::LlmClient;
@@ -16,7 +17,7 @@ pub struct AudioDeviceInfo {
 
 #[tauri::command]
 pub async fn list_audio_devices() -> Result<Vec<AudioDeviceInfo>> {
-    let devices = SimpleAudioRecorder::list_devices()?;
+    let devices = PlatformAudioRecorder::list_devices()?;
     Ok(devices
         .into_iter()
         .map(|name| AudioDeviceInfo {
@@ -34,7 +35,7 @@ pub async fn list_audio_devices() -> Result<Vec<AudioDeviceInfo>> {
 pub async fn start_audio_recording(
     devices: Vec<String>,
     _title: String,
-    recorder: State<'_, Arc<SimpleAudioRecorder>>,
+    recorder: State<'_, Arc<PlatformAudioRecorder>>,
     goal_service: State<'_, Arc<Mutex<GoalService>>>,
     _app: tauri::AppHandle,
 ) -> Result<String> {
@@ -55,7 +56,7 @@ pub async fn start_audio_recording(
 }
 
 #[tauri::command]
-pub async fn stop_audio_recording(recorder: State<'_, Arc<SimpleAudioRecorder>>) -> Result<String> {
+pub async fn stop_audio_recording(recorder: State<'_, Arc<PlatformAudioRecorder>>) -> Result<String> {
     let recording = recorder.inner().stop_recording()?;
 
     if let Some(ref goal_id) = recording.goal_id {
@@ -74,20 +75,20 @@ pub async fn stop_audio_recording(recorder: State<'_, Arc<SimpleAudioRecorder>>)
 }
 
 #[tauri::command]
-pub async fn pause_audio_recording(_recorder: State<'_, Arc<SimpleAudioRecorder>>) -> Result<()> {
+pub async fn pause_audio_recording(_recorder: State<'_, Arc<PlatformAudioRecorder>>) -> Result<()> {
     // TODO: Implement pause
     Ok(())
 }
 
 #[tauri::command]
-pub async fn resume_audio_recording(_recorder: State<'_, Arc<SimpleAudioRecorder>>) -> Result<()> {
+pub async fn resume_audio_recording(_recorder: State<'_, Arc<PlatformAudioRecorder>>) -> Result<()> {
     // TODO: Implement resume
     Ok(())
 }
 
 #[tauri::command]
 pub async fn get_recording_status(
-    _recorder: State<'_, Arc<SimpleAudioRecorder>>,
+    _recorder: State<'_, Arc<PlatformAudioRecorder>>,
 ) -> Result<String> {
     // Return idle status for now
     Ok(r#"{"status":"Idle"}"#.to_string())
@@ -95,8 +96,8 @@ pub async fn get_recording_status(
 
 #[tauri::command]
 pub async fn get_recordings(
-    recorder: State<'_, Arc<SimpleAudioRecorder>>,
-) -> Result<Vec<crate::audio::simple_recorder::AudioRecording>> {
+    recorder: State<'_, Arc<PlatformAudioRecorder>>,
+) -> Result<Vec<AudioRecording>> {
     Ok(recorder.inner().get_recordings())
 }
 
@@ -105,7 +106,7 @@ pub async fn transcribe_recording(
     recording_id: String,
     recording_path: String,
     llm: State<'_, Arc<LlmClient>>,
-    recorder: State<'_, Arc<SimpleAudioRecorder>>,
+    recorder: State<'_, Arc<PlatformAudioRecorder>>,
 ) -> Result<String> {
     // Check if transcription already exists
     let recordings = recorder.inner().get_recordings();
@@ -178,7 +179,7 @@ pub async fn get_audio_info(audio_path: String) -> Result<crate::audio::processo
 #[tauri::command]
 pub async fn delete_recording(
     #[allow(non_snake_case)] recordingId: String,
-    recorder: State<'_, Arc<SimpleAudioRecorder>>,
+    recorder: State<'_, Arc<PlatformAudioRecorder>>,
 ) -> Result<()> {
     recorder.inner().delete_recording(&recordingId)?;
     Ok(())
