@@ -71,6 +71,11 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboardData()
     
+    // Refresh data every 30 seconds
+    const refreshInterval = setInterval(() => {
+      loadDashboardData()
+    }, 30000)
+    
     // Fallback to prevent infinite loading
     const fallbackTimer = setTimeout(() => {
       if (hoursLoading) {
@@ -80,7 +85,10 @@ export default function Dashboard() {
       }
     }, 10000)
     
-    return () => clearTimeout(fallbackTimer)
+    return () => {
+      clearInterval(refreshInterval)
+      clearTimeout(fallbackTimer)
+    }
   }, [])
 
   const loadDashboardData = async () => {
@@ -137,6 +145,14 @@ export default function Dashboard() {
       try {
         console.log('[Dashboard] Fetching today stats...')
         setHoursLoading(true)
+        
+        // First flush any pending activities to ensure we have the latest data
+        try {
+          await invoke('flush_pending_activities')
+          console.log('[Dashboard] Flushed pending activities')
+        } catch (e) {
+          console.warn('[Dashboard] Failed to flush pending activities:', e)
+        }
         
         // Add timeout to prevent infinite loading
         const timeoutPromise = new Promise<never>((_, reject) => 

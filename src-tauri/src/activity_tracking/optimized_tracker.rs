@@ -34,6 +34,7 @@ pub struct TrackerStats {
 
 impl OptimizedActivityTracker {
     pub fn new() -> Self {
+        println!("[OptimizedTracker] Creating new optimized activity tracker");
         Self {
             app_watcher: AppWatcher::new(),
             project_detector: ProjectDetector::new(),
@@ -42,17 +43,22 @@ impl OptimizedActivityTracker {
             aggregator: ActivityAggregator::new(),
             cache: ActivityCache::new(1000), // Cache last 1000 activities (~1.4 hours)
             batch_writer: None,
-            is_tracking: true,
+            is_tracking: true, // Start tracking immediately
             current_activity: None,
             stats: TrackerStats::default(),
         }
     }
 
     pub fn set_database(&mut self, db: Arc<Mutex<SqliteDatabase>>) {
+        println!("[OptimizedTracker] Setting database and initializing batch writer");
         let batch_writer = SharedBatchWriter::new(db);
         // Start periodic flush task
-        batch_writer.start_periodic_flush();
+        let flush_handle = batch_writer.start_periodic_flush();
+        println!("[OptimizedTracker] Started periodic flush task (10s interval)");
         self.batch_writer = Some(batch_writer);
+        
+        // Don't store the handle, let it run in background
+        std::mem::forget(flush_handle);
     }
 
     pub async fn start_tracking(&mut self) -> Result<()> {
@@ -167,6 +173,12 @@ impl OptimizedActivityTracker {
         println!("[OptimizedTracker] get_activities_by_date_range called");
         println!("[OptimizedTracker] Start: {}, End: {}", start.format("%Y-%m-%d %H:%M:%S"), end.format("%Y-%m-%d %H:%M:%S"));
         
+        // Force flush pending activities to ensure we have the latest data
+        if let Some(writer) = &self.batch_writer {
+            println!("[OptimizedTracker] Flushing pending activities before query");
+            writer.flush().await?;
+        }
+        
         // Check if cache can serve this request
         if self.cache.covers_range(start, end) {
             self.stats.cache_hits += 1;
@@ -273,5 +285,24 @@ impl OptimizedActivityTracker {
             "    Duration covered: {:.1} hours",
             cache_stats.total_duration_seconds as f64 / 3600.0
         );
+    }
+    
+    /// Force flush any pending activities
+    pub async fn flush_pending(&mut self) -> Result<()> {
+        println!("[OptimizedTracker] Force flushing pending activities");
+        
+        // Flush any pending aggregated activity
+        if let Some(activity) = self.aggregator.flush() {
+            println!("[OptimizedTracker] Flushing aggregated activity");
+            self.save_activity(activity).await;
+        }
+        
+        // Flush batch writer
+        if let Some(writer) = &self.batch_writer {
+            println!("[OptimizedTracker] Flushing batch writer");
+            writer.flush().await?;
+        }
+        
+        Ok(())
     }
 }

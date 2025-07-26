@@ -155,7 +155,8 @@ export interface ProductivityStats {
   }>
   hourly_breakdown: Array<{
     hour: number
-    seconds: number
+    productive_seconds: number
+    total_seconds: number
   }>
 }
 

@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod activity_flush;
 pub mod audio;
 pub mod browser_ai;
 pub mod chat;

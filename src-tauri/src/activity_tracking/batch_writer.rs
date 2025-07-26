@@ -16,9 +16,9 @@ pub struct BatchWriter {
 impl BatchWriter {
     pub fn new(db: Arc<Mutex<SqliteDatabase>>) -> Self {
         Self {
-            buffer: Vec::with_capacity(20),
-            max_batch_size: 20,
-            flush_interval_secs: 30,
+            buffer: Vec::with_capacity(10),
+            max_batch_size: 10,
+            flush_interval_secs: 10, // Reduced from 30 to 10 seconds for more frequent saves
             db,
         }
     }
@@ -133,7 +133,11 @@ impl SharedBatchWriter {
     pub fn start_periodic_flush(&self) -> tokio::task::JoinHandle<()> {
         let writer = self.inner.clone();
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_secs(30));
+            let flush_interval_secs = {
+                let w = writer.lock().await;
+                w.flush_interval_secs
+            };
+            let mut interval = interval(Duration::from_secs(flush_interval_secs));
             
             loop {
                 interval.tick().await;
@@ -141,6 +145,8 @@ impl SharedBatchWriter {
                 let mut w = writer.lock().await;
                 if let Err(e) = w.flush().await {
                     eprintln!("[SharedBatchWriter] Periodic flush failed: {}", e);
+                } else {
+                    println!("[SharedBatchWriter] Periodic flush completed");
                 }
             }
         })

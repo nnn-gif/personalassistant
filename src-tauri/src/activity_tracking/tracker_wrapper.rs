@@ -144,6 +144,14 @@ impl TrackerWrapper {
             }
         }
     }
+    
+    /// Force flush any pending activities (for optimized tracker)
+    pub async fn flush_pending(&mut self) -> Result<()> {
+        if let TrackerWrapper::Optimized(tracker) = self {
+            tracker.flush_pending().await?;
+        }
+        Ok(())
+    }
 
     /// Print statistics (only available for optimized tracker)
     pub fn print_stats(&self) {

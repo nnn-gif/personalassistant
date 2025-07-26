@@ -86,6 +86,7 @@ fn main() {
             services::activity::stop_tracking,
             services::activity::get_tracking_stats,
             services::activity::get_today_stats,
+            services::activity_flush::flush_pending_activities,
             // Browser AI commands
             services::browser_ai::test_research,
             services::browser_ai::start_research,

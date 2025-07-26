@@ -95,7 +95,7 @@ pub async fn get_today_stats(
 ) -> Result<TodayStats> {
     let db_arc = db.inner().clone();
 
-    // Get today's activities
+    // Get today's activities in UTC (database stores in UTC)
     let today_start = Utc::now()
         .date_naive()
         .and_hms_opt(0, 0, 0)
